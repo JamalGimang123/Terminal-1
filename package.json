@@ -1,0 +1,16 @@
+{
+  "name": "finterm",
+  "version": "1.0.0",
+  "description": "Personal finance terminal: live quotes, news, macro, ETF overlap, portfolio simulation, FIRE planner and a personal portfolio dashboard — built on free, public data sources.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js"
+  }
+}

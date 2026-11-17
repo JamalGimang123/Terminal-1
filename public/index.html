@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FinTerm</title>
+  <meta name="description" content="Personal finance terminal — live markets, news, macro, ETF overlap, portfolio simulation, FIRE planning and your own portfolio dashboard." />
+  <meta name="color-scheme" content="dark" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000'/%3E%3Cpath d='M2 12 L6 7 L9 9 L14 3' stroke='%23ffa028' stroke-width='2' fill='none'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/css/terminal.css" />
+</head>
+<body>
+  <header id="topbar">
+    <a class="brand" href="#/mkt" title="Market monitor">FIN<span>TERM</span></a>
+    <form id="cmd-form" autocomplete="off" role="search">
+      <label for="cmd" class="cmd-prompt">&gt;</label>
+      <input id="cmd" type="text" spellcheck="false" placeholder="Ticker or command (AAPL, AAPL N, OVLP SPY QQQ, FIRE, HELP)…  press / to focus" aria-label="Command line" />
+      <button type="submit" class="go">GO</button>
+      <ul id="cmd-suggest" role="listbox" hidden></ul>
+    </form>
+    <div id="clocks" aria-label="World clocks"></div>
+    <div id="health" title="Data source status"></div>
+  </header>
+  <nav id="fkeys" aria-label="Screens"></nav>
+  <div id="tape" aria-label="Ticker tape"><div class="tape-track"></div></div>
+  <main id="screen" tabindex="-1"></main>
+  <footer id="statusbar">
+    <span id="status-msg">Ready</span>
+    <span class="sb-right"><span id="status-updated"></span> · Data: Nasdaq, Yahoo Finance, U.S. Treasury, FRED, SEC EDGAR, CBOE, ECB, CoinGecko, CNBC, MarketWatch, Federal Reserve · Not investment advice</span>
+  </footer>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
