@@ -1,5 +1,5 @@
 // Shared renderers used by several screens.
-import { esc, price, pct, signed, cls, arrow, hhmm, ago, safeUrl, decimalsFor } from '../fmt.js';
+import { esc, price, pct, signed, cls, arrow, hhmm, ago, safeUrl, decimalsFor, tzLabel, stamp } from '../fmt.js';
 import { sparkline } from '../charts.js';
 import { flashKey } from '../dom.js';
 import { nameOf, shortSym } from '../symbols.js';
@@ -13,10 +13,11 @@ export function quoteTable(symbols, quotes, errors = {}, { names = {}, spark = t
       if (!q) {
         return `<tr class="click" data-sym="${esc(s)}"><td class="sym">${esc(shortSym(s))}</td><td class="nm" style="max-width:${nameW}px">${esc(nm)}</td><td class="r muted" colspan="${spark ? 4 : 3}" title="${esc(errors[s] || '')}">unavailable</td></tr>`;
       }
-      const d = /=X$/.test(s) ? (q.price >= 20 ? 3 : 4) : decimalsFor(q.price);
+      // Rupiah prices trade in whole numbers; FX pairs need more precision.
+      const d = /\.JK$|^IDR=X$/.test(s) ? 0 : /=X$/.test(s) ? (q.price >= 20 ? 3 : 4) : decimalsFor(q.price);
       const fk = flashKey(`q:${s}`, q.price);
       const srcTag = q.delayed ? ' <span class="tag delayed" title="' + esc(q.source) + '">D</span>' : q.stale ? ' <span class="tag delayed" title="stale">S</span>' : '';
-      return `<tr class="click" data-sym="${esc(s)}" title="${esc(nm)} · ${esc(q.source || '')}${q.time ? ' · ' + esc(hhmm(q.time)) + ' ET' : ''}">
+      return `<tr class="click" data-sym="${esc(s)}" title="${esc(nm)} · ${esc(q.source || '')}${q.time ? ' · ' + esc(hhmm(q.time)) + ' ' + tzLabel() : ''}">
         <td class="sym">${esc(shortSym(s))}</td>
         <td class="nm" style="max-width:${nameW}px">${esc(nm)}</td>
         <td class="r b ${fk}">${price(q.price, d)}${srcTag}</td>
@@ -40,13 +41,13 @@ export function linkRows(el, navigate) {
 
 export function newsList(items, { highlight = [], limit = 60, showSummary = true } = {}) {
   if (!items?.length) return '<div class="empty">No headlines</div>';
-  const hl = highlight.filter((s) => /^[A-Z]{2,5}$/.test(s));
+  const hl = [...new Set(highlight.map((s) => s.replace(/\.JK$/, '')))].filter((s) => /^[A-Z]{2,5}$/.test(s));
   const re = hl.length ? new RegExp(`\\b(${hl.join('|')})\\b`) : null;
   return `<ul class="news">${items
     .slice(0, limit)
     .map((i) => {
       const hits = re ? [...new Set((`${i.title} ${(i.symbols || []).join(' ')}`.match(new RegExp(re, 'g')) || []))].slice(0, 3) : [];
-      return `<li><div class="tm">${esc(hhmm(i.published))}<small>${esc(ago(i.published))}</small></div><div>
+      return `<li><div class="tm">${esc(stamp(i))}<small>${esc(ago(i.published))}</small></div><div>
         ${hits.map((s) => `<span class="hit">${esc(s)}</span>`).join('')}<a class="hl" href="${safeUrl(i.link)}" target="_blank" rel="noopener noreferrer">${esc(i.title)}</a><span class="src">${esc(i.source)}${i.feed ? ' · ' + esc(i.feed) : ''}</span>
         ${showSummary && i.summary && i.summary !== i.title ? `<div class="sm">${esc(i.summary)}</div>` : ''}</div></li>`;
     })

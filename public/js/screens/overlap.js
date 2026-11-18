@@ -2,9 +2,10 @@
 import { api } from '../api.js';
 import { h, panel, loading, errorBox, toast } from '../dom.js';
 import { esc, num, int, safeUrl, DASH } from '../fmt.js';
-import { HEX, sequentialColor } from '../charts.js';
+import { HEX, sequentialColor, resolveVars } from '../charts.js';
 import { state, holdingsBySymbol, saveInputs, savedInputs } from '../state.js';
 import { overlapMatrix, overlapPair, lookThrough, resolveKeys } from '../lib/overlap.js';
+import { valuePortfolio } from '../valuation.js';
 
 const MAX = 6;
 
@@ -77,12 +78,13 @@ export default {
     }
     const persist = () => saveInputs('ovlp', { funds, alloc });
     const loadMine = async () => {
-      const hs = holdingsBySymbol(state().positions).filter((x) => ['ETF', 'Fund'].includes(x.assetClass));
-      if (!hs.length) return toast('No ETF/Fund positions in your portfolio (set asset class to ETF)', true);
-      const { quotes } = await api.quotes(hs.map((x) => x.symbol));
-      const rows = hs.map((x) => ({ s: x.symbol, v: (quotes[x.symbol]?.price || x.avgCost) * x.shares })).sort((a, b) => b.v - a.v).slice(0, MAX);
-      funds = rows.map((r) => r.s);
-      alloc = rows.map((r) => Math.round(r.v));
+      const st = state();
+      const etfs = new Set(holdingsBySymbol(st.positions).filter((x) => ['ETF', 'Fund'].includes(x.assetClass)).map((x) => x.symbol));
+      if (!etfs.size) return toast('No ETF/Fund positions in your portfolio (set asset class to ETF)', true);
+      const v = await valuePortfolio({ ...st, positions: st.positions.filter((p) => etfs.has(p.symbol)), cash: [] });
+      const rows = Object.entries(v.bySymbol).sort((a, b) => b[1] - a[1]).slice(0, MAX);
+      funds = rows.map(([sym]) => sym);
+      alloc = rows.map(([, x]) => Math.round(x));
       drawChips();
       run();
     };
@@ -137,7 +139,7 @@ export default {
             if (i === j) return '<td class="c muted">—</td>';
             const o = m[i][j];
             const sel = (pair[0] === a.i && pair[1] === b.i) || (pair[0] === b.i && pair[1] === a.i);
-            return `<td class="c" data-a="${a.i}" data-b="${b.i}" style="cursor:pointer;background:${sequentialColor(o.weightOverlap / 100)};${sel ? 'outline:1px solid var(--amber);outline-offset:-1px;' : ''}" title="${esc(a.f)} ∩ ${esc(b.f)}: ${num(o.weightOverlap, 1)}% by weight, ${o.commonCount} common holdings"><b style="color:#fff">${num(o.weightOverlap, 1)}%</b><div style="font-size:10px;color:rgba(255,255,255,.78)">${o.commonCount} common</div></td>`;
+            return `<td class="c" data-a="${a.i}" data-b="${b.i}" style="cursor:pointer;background:${sequentialColor(o.weightOverlap / 100)};${sel ? 'outline:1px solid var(--amber);outline-offset:-1px;' : ''}" title="${esc(a.f)} ∩ ${esc(b.f)}: ${num(o.weightOverlap, 1)}% by weight, ${o.commonCount} common holdings"><b style="color:var(--heat-text)">${num(o.weightOverlap, 1)}%</b><div style="font-size:10px;color:var(--heat-text);opacity:.8">${o.commonCount} common</div></td>`;
           })
           .join('')}</tr>`)
         .join('')}</tbody></table>`;
@@ -175,7 +177,7 @@ export default {
             <div class="tile"><div class="l">${esc(A.f)} in ${esc(B.f)}</div><div class="v">${num(o.pctWeightA, 1)}%</div><div class="s">${num(o.pctCountA * 100, 0)}% of holdings</div></div>
             <div class="tile"><div class="l">${esc(B.f)} in ${esc(A.f)}</div><div class="v">${num(o.pctWeightB, 1)}%</div><div class="s">${num(o.pctCountB * 100, 0)}% of holdings</div></div>
           </div>
-          ${venn(A.f, B.f, o)}
+          ${resolveVars(venn(A.f, B.f, o))}
           <div class="note">“${esc(A.f)} in ${esc(B.f)}” = share of ${esc(A.f)}'s assets in securities ${esc(B.f)} also owns.</div>
         </div>
         <div class="c5"><div class="note amber" style="margin-bottom:3px">COMMON HOLDINGS (${o.commonCount})</div>${list(o.common.slice(0, 60), [

@@ -66,3 +66,25 @@ export function fxPair(sym) {
   if (s.length === 3) return ['USD', s]; // e.g. JPY=X is USD/JPY
   return null;
 }
+
+// Trading currency inferred from the Yahoo exchange suffix (quotes from the batch
+// spark endpoint omit it). "GBp" = pence sterling.
+const SUFFIX_CCY = {
+  JK: 'IDR', T: 'JPY', L: 'GBp', HK: 'HKD', TO: 'CAD', V: 'CAD', AX: 'AUD', NZ: 'NZD', SI: 'SGD', KS: 'KRW', KQ: 'KRW',
+  SS: 'CNY', SZ: 'CNY', NS: 'INR', BO: 'INR', TW: 'TWD', TWO: 'TWD', BK: 'THB', KL: 'MYR', PS: 'PHP', SA: 'BRL', MX: 'MXN',
+  DE: 'EUR', F: 'EUR', PA: 'EUR', AS: 'EUR', MI: 'EUR', MC: 'EUR', BR: 'EUR', LS: 'EUR', VI: 'EUR', HE: 'EUR', IR: 'EUR',
+  SW: 'CHF', ST: 'SEK', OL: 'NOK', CO: 'DKK', WA: 'PLN', TA: 'ILS', JO: 'ZAc', IS: 'TRY',
+};
+const INDEX_CCY = { '^JKSE': 'IDR', '^JKLQ45': 'IDR', '^JKII': 'IDR', '^N225': 'JPY', '^HSI': 'HKD', '^FTSE': 'GBP', '^GDAXI': 'EUR', '^FCHI': 'EUR', '^STOXX50E': 'EUR', '^KS11': 'KRW', '^GSPTSE': 'CAD', '^AXJO': 'AUD', '^BSESN': 'INR', '000001.SS': 'CNY' };
+
+export function currencyOf(sym) {
+  if (INDEX_CCY[sym]) return INDEX_CCY[sym];
+  const kind = classify(sym);
+  if (kind === 'us' || kind === 'crypto' || kind === 'future') return 'USD';
+  if (kind === 'fx') {
+    const p = fxPair(sym);
+    return p ? p[1] : 'USD';
+  }
+  const m = sym.match(/\.([A-Z]{1,4})$/);
+  return m ? SUFFIX_CCY[m[1]] || null : sym.startsWith('^') ? null : 'USD';
+}

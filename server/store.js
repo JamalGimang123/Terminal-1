@@ -46,6 +46,7 @@ export function sanitize(doc) {
     account: str(c.account, 60) || 'Cash',
     amount: numOr(c.amount, 0),
     apy: numOr(c.apy, 0),
+    currency: /^[A-Z]{3}$/.test(String(c.currency || '')) ? c.currency : 'USD',
   }));
   out.watchlist = [...new Set((Array.isArray(doc.watchlist) ? doc.watchlist : []).map(normalizeSymbol).filter(Boolean))].slice(0, 200);
   out.settings = doc.settings && typeof doc.settings === 'object' ? JSON.parse(JSON.stringify(doc.settings)) : {};

@@ -1,10 +1,10 @@
 // EQ — security detail: quote, chart, key stats, performance & risk, fundamentals, filings, holdings, news.
 import { api } from '../api.js';
 import { h, panel, loading, errorBox, seg, modal, toast, setStatus } from '../dom.js';
-import { esc, price, pct, pctf, signed, cls, arrow, big, bigMoney, num, int, money, date, hhmm, safeUrl, decimalsFor, DASH } from '../fmt.js';
+import { esc, price, pct, pctf, signed, cls, arrow, big, bigMoney, num, int, money, date, hhmm, safeUrl, decimalsFor, tzLabel, DASH } from '../fmt.js';
 import { priceChart, columnChart, hbars, HEX } from '../charts.js';
 import { state, update, uid } from '../state.js';
-import { nameOf, isIndexLike } from '../symbols.js';
+import { nameOf, isIndexLike, NAMES } from '../symbols.js';
 import { newsList, rangeBar } from './common.js';
 import * as S from '../lib/stats.js';
 
@@ -112,7 +112,7 @@ export default {
         q
           ? h('div', {
               class: 'facts',
-              html: `<span><b>Time</b>${esc(hhmm(q.time))} ET</span><span><b>Session</b>${esc(q.marketState || DASH)}</span><span><b>Source</b>${esc(q.source)}</span>${q.realtime ? '<span class="tag live">REAL-TIME</span>' : q.delayed ? '<span class="tag delayed">DELAYED</span>' : ''}${heldShares ? `<span class="tag amber">YOU HOLD ${num(heldShares, heldShares % 1 ? 4 : 0)}</span>` : ''}`,
+              html: `<span><b>Time</b>${esc(hhmm(q.time))} ${tzLabel()}</span><span><b>Session</b>${esc(q.marketState || DASH)}</span><span><b>Source</b>${esc(q.source)}</span>${q.realtime ? '<span class="tag live">REAL-TIME</span>' : q.delayed ? '<span class="tag delayed">DELAYED</span>' : ''}${heldShares ? `<span class="tag amber">YOU HOLD ${num(heldShares, heldShares % 1 ? 4 : 0)}</span>` : ''}`,
             })
           : '',
         h(
@@ -412,8 +412,9 @@ export default {
     function drawProfile() {
       const s = profile?.sec;
       if (!s) {
-        profP.body.innerHTML = `<div class="empty">${isIndexLike(sym) ? 'Index / futures / FX instrument — no issuer filings' : 'No SEC registrant found (foreign listing, crypto or non-SEC fund)'}</div>`;
-        filingsP.body.innerHTML = '<div class="empty">No SEC filings</div>';
+        // SEC panels only apply to US registrants: hide them for indices, FX, crypto and foreign listings.
+        profP.el.remove();
+        filingsP.el.remove();
         return;
       }
       const fye = s.fiscalYearEnd ? `${s.fiscalYearEnd.slice(0, 2)}/${s.fiscalYearEnd.slice(2)}` : DASH;
@@ -435,7 +436,7 @@ export default {
 
     async function drawNews() {
       try {
-        const n = await api.symbolNews(sym, profile?.sec?.name || (quote?.name !== sym ? quote?.name : '') || chartName || '');
+        const n = await api.symbolNews(sym, profile?.sec?.name || NAMES[sym] || (quote?.name !== sym ? quote?.name : '') || chartName || '');
         if (!ctx.alive) return;
         newsP.body.innerHTML = newsList(n.items, { highlight: [sym] });
         newsP.setFoot(`Sources: ${n.feeds.map((f) => `${esc(f.feed)} ${f.ok ? '✓' : '✗'}`).join(' · ')} + general feeds mentioning ${esc(sym)}`);

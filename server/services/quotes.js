@@ -6,7 +6,7 @@
 //   Futures/intl   : Yahoo
 import { cached } from '../lib/cache.js';
 import { mapLimit } from '../lib/http.js';
-import { normalizeSymbol, classify, INDEX_FALLBACK, COINGECKO_IDS, fxPair } from '../lib/symbols.js';
+import { normalizeSymbol, classify, INDEX_FALLBACK, COINGECKO_IDS, fxPair, currencyOf } from '../lib/symbols.js';
 import { nasdaqQuotes } from '../providers/nasdaq.js';
 import { yahooQuote, yahooSpark, yahooStatus } from '../providers/yahoo.js';
 import { cboeQuote, ecbPair, coingeckoSimple } from '../providers/macro.js';
@@ -161,6 +161,7 @@ export async function getQuotes(rawSymbols) {
   }
   const errors = {};
   for (const s of symbols) if (!result[s]) errors[s] = fail.get(s) || 'No data from any source';
+  for (const [s, q] of Object.entries(result)) if (!q.currency) result[s] = { ...q, currency: currencyOf(s) };
   return { quotes: result, errors };
 }
 

@@ -13,6 +13,11 @@ const SOURCES = [
   ['CUSIP → ticker mapping', 'SEC fails-to-deliver data files', 'Twice monthly'],
   ['Crypto market data', 'CoinGecko public API', '~1 minute'],
   ['News', 'CNBC, MarketWatch (Dow Jones), Federal Reserve, SEC press releases (RSS); Nasdaq & Yahoo Finance per-symbol news', 'Every few minutes; links go to the original publisher'],
+  ['Indonesia — markets', 'Yahoo Finance: Jakarta Composite (IHSG), LQ45, Jakarta Islamic Index, USD/IDR, IDX stocks (.JK)', 'Delayed (not real-time) per exchange rules; IDX session 09:00–16:00 WIB'],
+  ['Indonesia — policy rate & releases', 'Bank Indonesia (bi.go.id): BI-Rate decisions and official press releases', 'After each Board of Governors meeting'],
+  ['Indonesia — economy', 'IMF World Economic Outlook (DataMapper); World Bank as fallback', 'Annual, with IMF projections for the current and next years'],
+  ['Indonesia — news', 'CNBC Indonesia, Antara (Bahasa & English), Detik Finance (paid advertorials filtered out)', 'Every few minutes'],
+  ['Currency conversion', 'Yahoo Finance FX (USD/IDR etc.), ECB reference rates as fallback', 'Live; portfolio cost is converted at today’s rate'],
 ];
 
 export default {
@@ -39,17 +44,20 @@ export default {
       <dt>OVLP SPY QQQ VTI</dt><dd>ETF overlap and look-through exposure (up to 6 funds).</dd>
       <dt>PSIM VTI BND · PSIM</dt><dd>Portfolio simulator (statistics, frontier, Monte Carlo).</dd>
       <dt>FIRE</dt><dd>FIRE, savings-goal and emergency-fund planner.</dd>
+      <dt>THEME</dt><dd>Customize every color, font size and the time zone used for timestamps.</dd>
+      <dt>IHSG · BBCA.JK · INDO</dt><dd>Jakarta Composite, an IDX stock (add .JK), Indonesian news.</dd>
     </dl>`;
     const keys = P('Keyboard', 'c6');
     keys.body.innerHTML = `<dl>
-      <dt><kbd>F1</kbd>–<kbd>F9</kbd></dt><dd>Switch screens (HELP, MKT, EQ, NEWS, ECO, PORT, OVLP, PSIM, FIRE). <kbd>Alt</kbd>+<kbd>1</kbd>–<kbd>9</kbd> also works.</dd>
+      <dt><kbd>F1</kbd>–<kbd>F10</kbd></dt><dd>Switch screens (HELP, MKT, EQ, NEWS, ECO, PORT, OVLP, PSIM, FIRE, THEME). <kbd>Alt</kbd>+<kbd>1</kbd>–<kbd>0</kbd> also works.</dd>
       <dt><kbd>/</kbd> or any letter</dt><dd>Focus the command line.</dd>
       <dt><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd></dt><dd>Pick an autocomplete suggestion.</dd>
       <dt><kbd>Esc</kbd></dt><dd>Clear the command line / close dialogs.</dd>
       <dt>Click a row</dt><dd>Any ticker row opens that security.</dd>
       <dt>Hover a chart</dt><dd>Crosshair with values; table views accompany every chart.</dd>
     </dl>
-    <hr class="sep"><p class="prose"><b class="amber">Your data</b> — positions, watchlist and calculator inputs are saved to <code>data/user/portfolio.json</code> on this computer (mirrored in browser storage). Nothing is sent anywhere except symbol lookups to the public data sources below. Use PORT → Backup JSON to keep a copy.</p>`;
+    <hr class="sep"><p class="prose"><b class="amber">Your data</b> — positions, watchlist and calculator inputs are saved to <code>data/user/portfolio.json</code> on this computer (mirrored in browser storage). Nothing is sent anywhere except symbol lookups to the public data sources below. Use PORT → Backup JSON to keep a copy.</p>
+    <p class="prose"><b class="amber">Currencies</b> — enter each holding's cost in the currency it trades in (rupiah for .JK stocks, dollars for US). Choose USD or IDR as the base currency on PORT; totals, P&amp;L, FIRE and PSIM amounts follow it.</p>`;
     const src = P('Data Sources', 'c12');
     src.body.innerHTML = `<table class="t"><thead><tr><th>Data</th><th>Source</th><th>Timeliness / notes</th></tr></thead><tbody>${SOURCES.map(([a, b, c]) => `<tr><td class="amber">${a}</td><td class="wrap">${b}</td><td class="wrap dim">${c}</td></tr>`).join('')}</tbody></table>`;
     src.setFoot('All sources are free and public, no API keys required. Tags: <span class="tag live">REAL-TIME</span> live exchange data · <span class="tag delayed">D</span> delayed/reference rate · <span class="tag delayed">S</span> last good value (source temporarily unavailable).');

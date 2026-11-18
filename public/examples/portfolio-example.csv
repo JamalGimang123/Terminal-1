@@ -1,0 +1,8 @@
+symbol,shares,costBasis,purchaseDate,account,assetClass,notes
+VTI,25,245.10,2024-03-15,Roth IRA,ETF,US total stock market fund
+VXUS,40,58.20,2024-03-15,Roth IRA,ETF,International stocks
+AAPL,10,172.30,2023-11-20,Taxable,Equity,
+BND,30,72.05,2024-06-03,Taxable,Bond,US bond fund
+BBCA.JK,500,9250,2024-02-12,IDX Broker,Equity,Bank Central Asia - price in rupiah (5 lots)
+TLKM.JK,1000,3900,2023-09-01,IDX Broker,Equity,Telkom Indonesia (10 lots)
+BTC-USD,0.05,42000,2024-01-20,Crypto,Crypto,

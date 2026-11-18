@@ -131,3 +131,36 @@ test('portfolio store sanitises input', () => {
   assert.equal(doc.positions[1].assetClass, 'Equity');
   assert.deepEqual(doc.watchlist, ['AAPL']);
 });
+
+// ---- Indonesia -------------------------------------------------------------------
+import { parseBiRate, parseBiPress, parseLongDate } from '../server/providers/indonesia.js';
+import { currencyOf } from '../server/lib/symbols.js';
+
+test('Bank Indonesia BI-Rate table', () => {
+  const rows = parseBiRate(fs.readFileSync(fx('bi-rate-sample.html'), 'utf8'));
+  assert.ok(rows.length >= 5, `rows ${rows.length}`);
+  assert.equal(rows[0].date, '2026-11-18');
+  assert.equal(rows[0].rate, 6);
+  assert.ok(rows[0].date > rows[1].date, 'newest first');
+  assert.match(rows[0].url, /^https:\/\/www\.bi\.go\.id\/en\/publikasi\//);
+});
+
+test('Bank Indonesia press release cards', () => {
+  const items = parseBiPress(fs.readFileSync(fx('bi-press-sample.html'), 'utf8'));
+  assert.ok(items.length >= 1);
+  assert.match(items[0].title, /BI-Rate/);
+  assert.equal(items[0].published, '2026-11-18T05:00:00.000Z');
+  assert.ok(!/DKom/.test(items[0].summary), 'reference number stripped');
+  assert.equal(parseLongDate('3 March 2025'), '2025-03-03');
+  assert.equal(parseLongDate('nonsense'), null);
+});
+
+test('currency inferred from exchange suffix', () => {
+  assert.equal(currencyOf('BBCA.JK'), 'IDR');
+  assert.equal(currencyOf('^JKSE'), 'IDR');
+  assert.equal(currencyOf('AAPL'), 'USD');
+  assert.equal(currencyOf('VOD.L'), 'GBp');
+  assert.equal(currencyOf('7203.T'), 'JPY');
+  assert.equal(currencyOf('IDR=X'), 'IDR');
+  assert.equal(currencyOf('BTC-USD'), 'USD');
+});

@@ -7,6 +7,8 @@ export const NAMES = {
   'DX-Y.NYB': 'US Dollar Index', 'EURUSD=X': 'EUR/USD', 'JPY=X': 'USD/JPY', 'GBPUSD=X': 'GBP/USD', 'CNY=X': 'USD/CNY', 'CAD=X': 'USD/CAD', 'AUDUSD=X': 'AUD/USD', 'CHF=X': 'USD/CHF', 'MXN=X': 'USD/MXN',
   'BTC-USD': 'Bitcoin', 'ETH-USD': 'Ethereum', 'SOL-USD': 'Solana',
   '^TNX': 'US 10Y Yield', '^IRX': 'US 13W Bill', '^FVX': 'US 5Y Yield', '^TYX': 'US 30Y Yield',
+  // Indonesia
+  '^JKSE': 'Jakarta Composite (IHSG)', '^JKLQ45': 'LQ45 Index', '^JKII': 'Jakarta Islamic Index', 'IDR=X': 'USD/IDR (Rupiah)', EIDO: 'iShares MSCI Indonesia ETF (US$)',
 };
 
 export const SHORT = {
@@ -14,16 +16,29 @@ export const SHORT = {
   'ES=F': 'ES1', 'NQ=F': 'NQ1', 'YM=F': 'YM1', 'RTY=F': 'RTY1', 'CL=F': 'CL1', 'BZ=F': 'CO1', 'NG=F': 'NG1', 'GC=F': 'GC1', 'SI=F': 'SI1', 'HG=F': 'HG1', 'ZC=F': 'C1', 'ZW=F': 'W1',
   'DX-Y.NYB': 'DXY', 'EURUSD=X': 'EURUSD', 'JPY=X': 'USDJPY', 'GBPUSD=X': 'GBPUSD', 'CNY=X': 'USDCNY', 'CAD=X': 'USDCAD', 'AUDUSD=X': 'AUDUSD', 'CHF=X': 'USDCHF', 'MXN=X': 'USDMXN',
   'BTC-USD': 'BTC', 'ETH-USD': 'ETH', 'SOL-USD': 'SOL',
+  '^JKSE': 'JCI', '^JKLQ45': 'LQ45', '^JKII': 'JII', 'IDR=X': 'USDIDR',
 };
 
-export const shortSym = (s) => SHORT[s] || s;
+// Indonesian large caps (IDX, prices in IDR). Order ≈ market capitalisation.
+export const ID_STOCKS = [
+  ['BBCA.JK', 'Bank Central Asia'], ['BBRI.JK', 'Bank Rakyat Indonesia'], ['BMRI.JK', 'Bank Mandiri'], ['TLKM.JK', 'Telkom Indonesia'],
+  ['ASII.JK', 'Astra International'], ['BBNI.JK', 'Bank Negara Indonesia'], ['AMMN.JK', 'Amman Mineral'], ['BREN.JK', 'Barito Renewables'],
+  ['TPIA.JK', 'Chandra Asri Pacific'], ['DSSA.JK', 'Dian Swastatika Sentosa'], ['ICBP.JK', 'Indofood CBP'], ['UNTR.JK', 'United Tractors'],
+  ['AMRT.JK', 'Sumber Alfaria (Alfamart)'], ['ADRO.JK', 'AlamTri Resources'], ['ANTM.JK', 'Aneka Tambang'], ['INDF.JK', 'Indofood Sukses Makmur'],
+  ['KLBF.JK', 'Kalbe Farma'], ['CPIN.JK', 'Charoen Pokphand Indonesia'], ['UNVR.JK', 'Unilever Indonesia'], ['PGAS.JK', 'Perusahaan Gas Negara'],
+  ['MDKA.JK', 'Merdeka Copper Gold'], ['GOTO.JK', 'GoTo Gojek Tokopedia'],
+];
+for (const [s, n] of ID_STOCKS) NAMES[s] = n;
+export const ID_MARKET = ['^JKSE', '^JKLQ45', '^JKII', 'IDR=X', 'EIDO'];
+
+export const shortSym = (s) => SHORT[s] || s.replace(/\.JK$/, '');
 export const nameOf = (s, fallback) => NAMES[s] || fallback || s;
 
 export const US_INDICES = ['^GSPC', '^DJI', '^IXIC', '^NDX', '^RUT', '^VIX'];
 export const FUTURES = ['ES=F', 'NQ=F', 'YM=F', 'RTY=F', 'CL=F', 'BZ=F', 'NG=F', 'GC=F', 'SI=F', 'HG=F'];
 export const WORLD = ['^FTSE', '^GDAXI', '^FCHI', '^STOXX50E', '^N225', '^HSI', '000001.SS', '^KS11', '^GSPTSE', '^AXJO'];
 export const FX = ['DX-Y.NYB', 'EURUSD=X', 'JPY=X', 'GBPUSD=X', 'CNY=X', 'CAD=X', 'AUDUSD=X', 'CHF=X'];
-export const TAPE = ['^GSPC', '^DJI', '^IXIC', '^RUT', '^VIX', 'ES=F', 'NQ=F', 'CL=F', 'GC=F', 'EURUSD=X', 'JPY=X', 'BTC-USD', 'ETH-USD'];
+export const TAPE = ['^GSPC', '^DJI', '^IXIC', '^RUT', '^VIX', '^JKSE', 'IDR=X', 'ES=F', 'NQ=F', 'CL=F', 'GC=F', 'EURUSD=X', 'JPY=X', 'BTC-USD', 'ETH-USD'];
 
 export const SECTORS = [
   ['XLK', 'Technology'], ['XLF', 'Financials'], ['XLV', 'Health Care'], ['XLY', 'Cons. Discretionary'], ['XLC', 'Communication'], ['XLI', 'Industrials'],

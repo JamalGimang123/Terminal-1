@@ -2,9 +2,10 @@
 // efficient frontier (long-only) and Monte Carlo projection.
 import { api } from '../api.js';
 import { h, panel, loading, errorBox, seg, toast } from '../dom.js';
-import { esc, num, pctf, money, int, DASH } from '../fmt.js';
+import { esc, num, pctf, int, DASH } from '../fmt.js';
+import { baseOf, fmtMoney, currencyPrefix, valuePortfolio } from '../valuation.js';
 import { lineChart, scatterChart, columnChart, HEX, divergingColor, compactNum } from '../charts.js';
-import { state, holdingsBySymbol, saveInputs, savedInputs } from '../state.js';
+import { state, saveInputs, savedInputs } from '../state.js';
 import * as S from '../lib/stats.js';
 
 const DEFAULTS = {
@@ -31,6 +32,9 @@ export default {
   id: 'psim',
   title: 'Portfolio Simulator',
   async mount(root, { query }, ctx) {
+    const CUR = baseOf(state());
+    const money = (v, d = 0) => fmtMoney(v, CUR, d);
+    const CP = currencyPrefix(CUR);
     const cfg = { ...DEFAULTS, ...(savedInputs('psim') || {}) };
     if (query.get('s')) {
       const syms = query.get('s').toUpperCase().split(',').filter(Boolean);
@@ -111,13 +115,14 @@ export default {
       } }, 'Normalise'), h('button', { class: 'btn sm', onclick: loadMine }, 'Load my portfolio'), h('span', { class: 'spacer' }), totalEl));
     }
     async function loadMine() {
-      const hs = holdingsBySymbol(state().positions);
-      if (!hs.length) return toast('No positions in PORT yet', true);
-      const { quotes } = await api.quotes(hs.map((x) => x.symbol));
-      const vals = hs.map((x) => ({ s: x.symbol, v: (quotes[x.symbol]?.price ?? x.avgCost) * x.shares })).filter((x) => x.v > 0).sort((a, b) => b.v - a.v).slice(0, 20);
-      const t = vals.reduce((s, x) => s + x.v, 0);
-      cfg.assets = vals.map((x) => ({ s: x.s, w: +((x.v / t) * 100).toFixed(2) }));
-      initIn.value = String(Math.round(t + state().cash.reduce((s, c) => s + c.amount, 0)));
+      const st = state();
+      if (!st.positions.length) return toast('No positions in PORT yet', true);
+      const v = await valuePortfolio(st, CUR);
+      const vals = Object.entries(v.bySymbol).filter(([, x]) => x > 0).sort((a, b) => b[1] - a[1]).slice(0, 20);
+      const t = vals.reduce((s, [, x]) => s + x, 0);
+      cfg.assets = vals.map(([sym, x]) => ({ s: sym, w: +((x / t) * 100).toFixed(2) }));
+      initIn.value = String(Math.round(v.total));
+      if (v.missing.length) toast(`No exchange rate for ${v.missing.join(', ')} — left out`, true);
       drawRows();
     }
     drawRows();
@@ -132,10 +137,10 @@ export default {
       ),
       h('hr', { class: 'sep' }),
       h('div', { class: 'form' },
-        field('Starting value $', initIn),
-        field('Monthly contribution $', monthlyIn),
+        field(`Starting value (${CUR})`, initIn),
+        field(`Monthly contribution (${CUR})`, monthlyIn),
         field('Horizon (years)', yearsIn),
-        field('Target value $', targetIn),
+        field(`Target value (${CUR})`, targetIn),
         field('Expected return % (ann.)', expIn, 'blank = historical mean'),
         field('Inflation %', infIn),
         field('Simulations', simsSel),
@@ -227,7 +232,8 @@ export default {
         tile('1-month VaR 95%', pctf(S.parametricVaR(ps.expectedReturn / 12, ps.volatility / Math.sqrt(12), 0.95), 2), 'parametric (normal)'),
         tile('Calmar ratio', num(ps.calmar, 2), `best day ${pctf(ps.best, 1)} · worst ${pctf(ps.worst, 1)}`),
       ].join('')}</div>`;
-      statsP.setFoot(`${window} · daily rebalanced to target weights${notAdj.length ? ` · ${esc(notAdj.join(', '))}: price-only (dividends excluded)` : ' · dividend-adjusted'}`);
+      const nonUsd = useSyms.filter((x) => /\.[A-Z]{1,4}$/.test(x));
+      statsP.setFoot(`${window} · daily rebalanced to target weights${notAdj.length ? ` · ${esc(notAdj.join(', '))}: price-only (dividends excluded)` : ' · dividend-adjusted'}${nonUsd.length ? ` · ${esc(nonUsd.join(', '))}: returns in local currency (excl. FX)` : ''}`);
 
       // asset table
       assetsP.body.innerHTML = `<table class="t compact"><thead><tr><th>Asset</th><th class="r">Weight</th><th class="r">Ann. return</th><th class="r">Volatility</th><th class="r">Sharpe</th><th class="r">Max DD</th><th class="r">Beta</th><th class="r" title="Share of portfolio variance contributed by this asset">Risk contrib.</th></tr></thead><tbody>${useSyms
@@ -243,7 +249,7 @@ export default {
 
       // correlation heatmap
       corrP.body.innerHTML = `<div class="scroll"><table class="t compact"><thead><tr><th></th>${useSyms.map((s) => `<th class="c">${esc(s)}</th>`).join('')}</tr></thead><tbody>${useSyms
-        .map((a, i) => `<tr><td class="sym">${esc(a)}</td>${useSyms.map((b, j) => `<td class="c" style="background:${divergingColor(corr[i][j])};color:#fff" title="${esc(a)} / ${esc(b)}: ${num(corr[i][j], 2)}">${num(corr[i][j], 2)}</td>`).join('')}</tr>`)
+        .map((a, i) => `<tr><td class="sym">${esc(a)}</td>${useSyms.map((b, j) => `<td class="c heatcell" style="background:${divergingColor(corr[i][j])}" title="${esc(a)} / ${esc(b)}: ${num(corr[i][j], 2)}">${num(corr[i][j], 2)}</td>`).join('')}</tr>`)
         .join('')}</tbody></table></div>`;
       corrP.setFoot('Blue = move together (+1), grey = unrelated (0), red = move opposite (−1). Lower correlations diversify.');
 
@@ -256,7 +262,7 @@ export default {
       btP.body.append(box1, h('div', { class: 'note' }, 'Drawdown from previous peak'), box2);
       const series = [{ name: 'Portfolio', values: growth, color: HEX[0] }];
       if (RB) series.push({ name: bench, values: S.growthSeries(RB, cfg.initial || 10000), color: HEX[1] });
-      lineChart(box1, { x, xType: 'time', series, height: 230, yFmt: (v) => '$' + compactNum(v), tipFmt: (v) => money(v, 0), endLabels: true });
+      lineChart(box1, { x, xType: 'time', series, height: 230, yFmt: (v) => CP + compactNum(v), tipFmt: (v) => money(v, 0), endLabels: true });
       const dd = [{ name: 'Portfolio', values: S.drawdowns(growth).map((v) => v * 100), color: HEX[0], area: true, areaBase: 0 }];
       if (RB) dd.push({ name: bench, values: S.drawdowns(S.growthSeries(RB)).map((v) => v * 100), color: HEX[1] });
       lineChart(box2, { x, xType: 'time', series: dd, height: 120, yFmt: (v) => v.toFixed(0) + '%', tipFmt: (v) => v.toFixed(1) + '%', legend: false });
@@ -279,7 +285,8 @@ export default {
         frP.body.append(box);
         scatterChart(box, {
           cloud: cloud.map((p) => ({ x: p.vol, y: p.ret, c: (p.sharpe - minS) / (maxS - minS || 1), w: p.w })),
-          cloudColor: (t) => `rgba(57,135,229,${0.15 + 0.6 * t})`,
+          cloudColor: () => HEX[0],
+          cloudOpacity: (t) => 0.15 + 0.6 * t,
           line: fr.map((p) => ({ x: p.vol, y: p.ret })),
           marks: [
             ...useSyms.map((s, i) => ({ x: Math.sqrt(cov[i][i]), y: mu[i], label: s, color: 'var(--muted)', r: 3.5 })),
@@ -342,13 +349,13 @@ export default {
         ],
         refY: cfg.target ? { value: cfg.target, label: `Target ${money(cfg.target, 0)}` } : null,
         height: 280,
-        yFmt: (v) => '$' + compactNum(v),
+        yFmt: (v) => CP + compactNum(v),
         tipFmt: (v) => money(v, 0),
       });
       const hist = S.histogram(mc.finals.filter((v) => v <= mc.summary.p95 * 1.5), 30);
       const hbox = h('div', { style: { marginTop: '6px' } });
       mcP.body.append(h('div', { class: 'note' }, 'Distribution of ending values'), hbox);
-      columnChart(hbox, { labels: hist.map((b) => '$' + compactNum(b.x0)), tipLabels: hist.map((b) => `${money(b.x0, 0)} – ${money(b.x1, 0)}`), series: [{ name: 'Simulations', values: hist.map((b) => b.count), color: HEX[0] }], height: 120, yFmt: (v) => String(Math.round(v)) });
+      columnChart(hbox, { labels: hist.map((b) => CP + compactNum(b.x0)), tipLabels: hist.map((b) => `${money(b.x0, 0)} – ${money(b.x1, 0)}`), series: [{ name: 'Simulations', values: hist.map((b) => b.count), color: HEX[0] }], height: 120, yFmt: (v) => String(Math.round(v)) });
       mcP.setFoot(`${mc.method === 'bootstrap' ? 'Block bootstrap of historical monthly returns' : `Lognormal monthly returns · μ ${pctf(exp, 2)} · σ ${pctf(ps.volatility, 2)}`} · ${int(cfg.sims)} paths · ${cfg.years} years · seeded (repeatable)`);
       const r = (l, v, c = '') => `<tr><td class="muted">${l}</td><td class="r b ${c}">${v}</td></tr>`;
       mcSumP.body.innerHTML = `<table class="t compact">

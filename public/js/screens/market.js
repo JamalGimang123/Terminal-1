@@ -1,10 +1,10 @@
 // MKT — market monitor: indices, futures, rates, world, FX, crypto, sectors, movers, news, calendars.
 import { api } from '../api.js';
 import { h, panel, loading, errorBox, seg, setStatus } from '../dom.js';
-import { esc, price, pct, signed, cls, arrow, big, bp, num, timeIn } from '../fmt.js';
+import { esc, price, pct, signed, cls, arrow, big, bp, num, timeIn, date, displayTz, tzLabel, etClock } from '../fmt.js';
 import { sparkline, perfColor } from '../charts.js';
 import { state } from '../state.js';
-import { US_INDICES, FUTURES, WORLD, FX, SECTORS } from '../symbols.js';
+import { US_INDICES, FUTURES, WORLD, FX, SECTORS, ID_MARKET, ID_STOCKS } from '../symbols.js';
 import { quoteTable, linkRows, newsList } from './common.js';
 
 export default {
@@ -30,7 +30,13 @@ export default {
     const watch = P('Watchlist', 'c4');
     const top = P('Top Headlines', 'c5', { bodyCls: 'flush scroll h420' });
     const cal = P('Today', 'c3', { bodyCls: 'flush' });
-    [idx, fut, world, fx, sectors, watch, movers, crypto].forEach((p) => linkRows(p.body, ctx.navigate));
+    // ---- Indonesia ----
+    grid.append(h('div', { class: 'c12 section-hd', html: 'INDONESIA <small>IDX · Rupiah · Bank Indonesia</small>' }));
+    const idMkt = P('Indonesia · Indices & Rupiah', 'c4');
+    const idStocks = P('Indonesia · IDX Blue Chips (IDR)', 'c4', { bodyCls: 'flush scroll h420' });
+    const idNews = P('Indonesia · Headlines', 'c4', { bodyCls: 'flush scroll h420' });
+    [idMkt, idStocks, idNews].forEach((p) => loading(p.body));
+    [idx, fut, world, fx, sectors, watch, movers, crypto, idMkt, idStocks].forEach((p) => linkRows(p.body, ctx.navigate));
     [idx, fut, rates, world, fx, crypto, sectors, movers, watch].forEach((p) => loading(p.body));
     loading(top.body);
     loading(cal.body);
@@ -39,7 +45,7 @@ export default {
     const sectorSyms = SECTORS.map((s) => s[0]);
     async function refreshQuotes() {
       const wl = state().watchlist || [];
-      const all = [...US_INDICES, ...FUTURES, ...WORLD, ...FX, ...sectorSyms, ...wl];
+      const all = [...US_INDICES, ...FUTURES, ...WORLD, ...FX, ...sectorSyms, ...wl, ...ID_MARKET, ...ID_STOCKS.map((x) => x[0])];
       try {
         const { quotes, errors } = await api.quotes(all);
         if (!ctx.alive) return;
@@ -58,8 +64,11 @@ export default {
         }).join('')}</div>`;
         const ordered = sectorSyms.filter((s) => s !== 'SPY' && quotes[s]).sort((a, b) => quotes[b].changePct - quotes[a].changePct);
         sectors.meta.textContent = ordered.length ? `Leader ${ordered[0]} ${pct(quotes[ordered[0]].changePct)} · Laggard ${ordered.at(-1)} ${pct(quotes[ordered.at(-1)].changePct)}` : '';
+        idQuotes = quotes;
+        idErrors = errors;
+        drawIndonesia();
         const src = new Set(Object.values(quotes).map((q) => q.source));
-        setStatus(`Market monitor updated ${timeIn(new Date(), 'America/New_York', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} ET · sources: ${[...src].join(', ')}`);
+        setStatus(`Market monitor updated ${timeIn(new Date(), displayTz, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} ${tzLabel()} · sources: ${[...src].join(', ')}`);
       } catch (err) {
         [idx, fut, world, fx, sectors, watch].forEach((p) => errorBox(p.body, err));
       }
@@ -176,8 +185,8 @@ export default {
         if (!econ) return loading(cal.body);
         const rows = econ.rows.filter((r) => r.country === 'United States');
         cal.body.innerHTML = rows.length
-          ? `<div class="scroll h420"><table class="t compact"><thead><tr><th>ET</th><th>Event</th><th class="r">Act</th><th class="r">Cons</th></tr></thead><tbody>${rows
-              .map((r) => `<tr title="Previous: ${esc(r.previous)}"><td class="muted">${esc(r.timeGMT)}</td><td class="wrap">${esc(r.event)}</td><td class="r b">${esc(r.actual) || '—'}</td><td class="r dim">${esc(r.consensus) || '—'}</td></tr>`)
+          ? `<div class="scroll h420"><table class="t compact"><thead><tr><th>${tzLabel()}</th><th>Event</th><th class="r">Act</th><th class="r">Cons</th></tr></thead><tbody>${rows
+              .map((r) => `<tr title="Previous: ${esc(r.previous)}"><td class="muted">${esc(etClock(econ.date, r.timeGMT))}</td><td class="wrap">${esc(r.event)}</td><td class="r b">${esc(r.actual) || '—'}</td><td class="r dim">${esc(r.consensus) || '—'}</td></tr>`)
               .join('')}</tbody></table></div>`
           : '<div class="empty">No US releases today</div>';
       } else {
@@ -199,7 +208,68 @@ export default {
       cal.setFoot('Source: Nasdaq calendars');
     }
 
+    // ---- Indonesia panels ----
+    let idQuotes = {};
+    let idErrors = {};
+    let idSort = 'cap';
+    let biRate = null;
+    const idSortSeg = seg([{ value: 'cap', label: 'Size' }, { value: 'up', label: '▲' }, { value: 'down', label: '▼' }], idSort, (v) => {
+      idSort = v;
+      drawIndonesia();
+    });
+    idStocks.meta.append(idSortSeg);
+    function drawIndonesia() {
+      const biLine = biRate?.decisions?.length
+        ? (() => {
+            const [cur, prev] = biRate.decisions;
+            const ch = prev ? Math.round((cur.rate - prev.rate) * 100) : 0;
+            return `<div class="row" style="margin-top:6px"><span class="tag amber">BI-Rate <b>${num(cur.rate, 2)}%</b></span><span class="${cls(ch)}">${ch ? (ch > 0 ? '▲ +' : '▼ ') + ch + 'bp' : 'unchanged'}</span><span class="muted">decided ${esc(date(cur.date))}</span><span class="spacer"></span><a href="#/eco">macro ›</a></div>`;
+          })()
+        : '';
+      idMkt.body.innerHTML = quoteTable(ID_MARKET, idQuotes, idErrors, { nameW: 170 }) + biLine;
+      idMkt.setFoot('Indices &amp; FX: Yahoo Finance · BI-Rate: Bank Indonesia');
+      let rows = ID_STOCKS.map(([s]) => s);
+      if (idSort !== 'cap') rows = rows.filter((s) => idQuotes[s]).sort((a, b) => (idSort === 'up' ? -1 : 1) * ((idQuotes[a].changePct ?? 0) - (idQuotes[b].changePct ?? 0)));
+      idStocks.body.innerHTML = quoteTable(rows, idQuotes, idErrors, { nameW: 150 });
+      const ok = ID_STOCKS.filter(([s]) => idQuotes[s]?.changePct != null);
+      const adv = ok.filter(([s]) => idQuotes[s].changePct > 0).length;
+      const dec = ok.filter(([s]) => idQuotes[s].changePct < 0).length;
+      idStocks.setFoot(`Breadth: <span class="up">${adv} up</span> · <span class="down">${dec} down</span> · ${ok.length - adv - dec} flat · prices in rupiah, IDX session 09:00–16:00 WIB`);
+    }
+    let idLang = 'all';
+    let idItems = [];
+    const langSeg = seg([{ value: 'all', label: 'All' }, { value: 'en', label: 'EN' }, { value: 'id', label: 'ID' }], idLang, (v) => {
+      idLang = v;
+      drawIdNews();
+    });
+    idNews.meta.append(langSeg);
+    function drawIdNews() {
+      const items = idLang === 'all' ? idItems : idItems.filter((i) => i.lang === idLang);
+      const mine = [...(state().watchlist || []), ...(state().positions || []).map((p) => p.symbol)];
+      idNews.body.innerHTML = newsList(items, { highlight: mine, showSummary: false, limit: 40 });
+    }
+    async function refreshIdNews() {
+      try {
+        idItems = (await api.news('indonesia', 120)).items;
+        if (ctx.alive) drawIdNews();
+        idNews.setFoot('CNBC Indonesia · Antara · Detik Finance · Bank Indonesia — <a href="#/news/indonesia">more ›</a>');
+      } catch (err) {
+        errorBox(idNews.body, err);
+      }
+    }
+    async function refreshBi() {
+      try {
+        biRate = (await api.indonesiaMacro()).biRate;
+        if (ctx.alive) drawIndonesia();
+      } catch {
+        /* BI-Rate line is optional */
+      }
+    }
+
     refreshQuotes();
+    refreshIdNews();
+    refreshBi();
+    ctx.every(180000, refreshIdNews);
     refreshRates();
     refreshCrypto();
     refreshMovers();

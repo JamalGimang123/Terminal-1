@@ -1,7 +1,7 @@
 // ECO — rates & macro: Treasury curve, rate history, FRED indicators, economic & earnings calendars, Fed.
 import { api } from '../api.js';
 import { h, panel, loading, errorBox, seg } from '../dom.js';
-import { esc, num, big, bp, cls, signed, date, DASH } from '../fmt.js';
+import { esc, num, big, bp, cls, signed, date, etClock, tzLabel, DASH } from '../fmt.js';
 import { lineChart, sparkline, HEX } from '../charts.js';
 import { newsList, linkRows } from './common.js';
 
@@ -59,10 +59,20 @@ export default {
     const indP = P('Economic Indicators (FRED)', 'c12');
     const detailP = P('Indicator Detail', 'c12');
     detailP.el.hidden = true;
+    // ---- Indonesia section ----
+    grid.append(h('div', { class: 'c12 section-hd', html: 'INDONESIA <small>Bank Indonesia · IMF World Economic Outlook · Yahoo Finance</small>' }));
+    const biP = P('Bank Indonesia · BI-Rate', 'c4');
+    const idMktP = P('Rupiah & Jakarta Composite — 1 Year', 'c8');
+    const idIndP = P('Indonesia Economy (IMF World Economic Outlook)', 'c12');
+    const idDetailP = P('Indonesia Indicator Detail', 'c12');
+    idDetailP.el.hidden = true;
+    const biPressP = P('Bank Indonesia Press Releases', 'c12', { bodyCls: 'flush scroll h300' });
+    grid.append(h('div', { class: 'c12 section-hd', html: 'CALENDARS & CENTRAL BANKS' }));
     const econP = P('Economic Calendar', 'c7', { bodyCls: 'flush' });
     const earnP = P('Earnings Calendar', 'c5', { bodyCls: 'flush' });
     const fedP = P('Federal Reserve Press Releases', 'c12', { bodyCls: 'flush scroll h300' });
-    [curveP, histP, indP, econP, earnP, fedP].forEach((p) => loading(p.body));
+    [curveP, histP, indP, econP, earnP, fedP, biP, idMktP, idIndP, biPressP].forEach((p) => loading(p.body));
+    loadIndonesia();
 
     // ---- Treasury curve & history ----
     let histTenors = ['3 Mo', '2 Yr', '10 Yr', '30 Yr'];
@@ -163,6 +173,122 @@ export default {
       }
     })();
 
+    // ---- Indonesia ----
+    function loadIndonesia() {
+      // BI-Rate + IMF indicators
+      api.indonesiaMacro().then((d) => {
+        if (!ctx.alive) return;
+        drawBiRate(d.biRate, d.errors);
+        drawIdIndicators(d.indicators, d.errors);
+      }, (err) => {
+        errorBox(biP.body, err);
+        errorBox(idIndP.body, err);
+      });
+      // Rupiah & JCI charts
+      Promise.allSettled([api.chart('IDR=X', '1y'), api.chart('^JKSE', '1y')]).then(([fxR, jciR]) => {
+        if (!ctx.alive) return;
+        idMktP.body.innerHTML = '';
+        const wrap = h('div', { class: 'grid' });
+        idMktP.body.append(wrap);
+        for (const [r, title, color, fmtV] of [
+          [fxR, 'USD/IDR — rupiah per US dollar (higher = weaker rupiah)', HEX[1], (v) => num(v, 0)],
+          [jciR, 'Jakarta Composite Index (IHSG)', HEX[0], (v) => num(v, 0)],
+        ]) {
+          const cell = h('div', { class: 'c6' });
+          wrap.append(cell);
+          if (r.status !== 'fulfilled' || !r.value.points.length) {
+            cell.innerHTML = `<div class="empty err">${esc(title)}: ${esc(r.reason?.message || 'no data')}</div>`;
+            continue;
+          }
+          const pts = r.value.points;
+          const first = pts[0].c;
+          const last = pts.at(-1).c;
+          const ch = (last / first - 1) * 100;
+          const box = h('div');
+          cell.append(h('div', { class: 'note', html: `${esc(title)} · <b class="amber">${fmtV(last)}</b> · 1Y <span class="${cls(ch)}">${signed(ch, 1)}%</span>` }), box);
+          lineChart(box, { x: pts.map((p) => p.t), xType: 'time', series: [{ name: title.split(' —')[0], values: pts.map((p) => p.c), color, area: true }], height: 210, yFmt: (v) => num(v, 0) });
+        }
+        idMktP.setFoot('Source: Yahoo Finance daily closes');
+      });
+      // BI press releases
+      api.news('bi', 30).then((n) => {
+        if (ctx.alive) biPressP.body.innerHTML = newsList(n.items);
+        biPressP.setFoot('Source: <a href="https://www.bi.go.id/en/publikasi/ruang-media/news-release/default.aspx" target="_blank" rel="noopener">Bank Indonesia</a> (official English releases)');
+      }, (err) => errorBox(biPressP.body, err));
+    }
+
+    function drawBiRate(r, errors) {
+      if (!r) return (biP.body.innerHTML = `<div class="empty err">BI-Rate unavailable: ${esc(errors.join('; '))}</div>`);
+      const d = r.decisions;
+      const [cur, prev] = d;
+      const ch = prev ? Math.round((cur.rate - prev.rate) * 100) : 0;
+      biP.body.innerHTML = `<div class="tiles" style="grid-template-columns:1fr 1fr;margin-bottom:6px">
+          <div class="tile hero"><div class="l">BI-Rate</div><div class="v amber">${num(cur.rate, 2)}%</div><div class="s">since ${esc(date(cur.date))}</div></div>
+          <div class="tile"><div class="l">Last decision</div><div class="v ${cls(ch)}">${ch ? (ch > 0 ? '+' : '') + ch + 'bp' : 'Hold'}</div><div class="s">${ch > 0 ? 'hike' : ch < 0 ? 'cut' : 'unchanged'} vs ${prev ? esc(date(prev.date)) : '—'}</div></div></div>`;
+      const box = h('div');
+      biP.body.append(box);
+      const asc = [...d].reverse();
+      lineChart(box, { x: asc.map((x) => Date.parse(x.date + 'T05:00:00Z')), xType: 'time', series: [{ name: 'BI-Rate', values: asc.map((x) => x.rate), color: HEX[0] }], height: 120, yFmt: (v) => v.toFixed(2) + '%' });
+      const tbl = h('div', { class: 'scroll h220', html: `<table class="t compact"><thead><tr><th>Board meeting</th><th class="r">BI-Rate</th><th class="r">Change</th><th class="r"></th></tr></thead><tbody>${d
+        .map((x, i) => {
+          const c = d[i + 1] ? Math.round((x.rate - d[i + 1].rate) * 100) : null;
+          return `<tr><td>${esc(date(x.date))}</td><td class="r b">${num(x.rate, 2)}%</td><td class="r ${cls(c)}">${c == null ? '—' : c ? (c > 0 ? '+' : '') + c + 'bp' : 'hold'}</td><td class="r">${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">release ›</a>` : ''}</td></tr>`;
+        })
+        .join('')}</tbody></table>` });
+      biP.body.append(tbl);
+      biP.setFoot(`Source: <a href="${esc(r.sourceUrl)}" target="_blank" rel="noopener">Bank Indonesia</a> · Board of Governors decisions`);
+    }
+
+    function drawIdIndicators(data, errors) {
+      if (!data) return (idIndP.body.innerHTML = `<div class="empty err">IMF / World Bank data unavailable: ${esc(errors.join('; '))}</div>`);
+      const thisYear = new Date().getFullYear();
+      const fmt = (v, unit) => (v == null ? '—' : unit === '%' ? num(v, 1) + '%' : unit === '$B' ? '$' + num(v, 0) + 'B' : '$' + num(v, 0));
+      const tiles = h('div', { class: 'tiles' });
+      for (const ind of data.indicators) {
+        const actual = ind.points.filter((p) => !p.projection);
+        const last = actual.at(-1);
+        const prevA = actual.at(-2);
+        const next = ind.points.find((p) => p.year === thisYear) || ind.points.find((p) => p.projection);
+        const d = last && prevA ? last.value - prevA.value : null;
+        const recent = ind.points.filter((p) => p.year >= thisYear - 15);
+        const tile = h('div', { class: 'tile', style: { cursor: 'pointer' }, title: `${ind.name} — click for history & projections` });
+        tile.innerHTML = `<div class="l">${esc(ind.name)}</div><div class="v">${fmt(last?.value, ind.unit)}</div>
+          <div class="s">${last ? last.year : ''} <span class="${cls(d)}">${d == null ? '' : (d >= 0 ? '+' : '−') + fmt(Math.abs(d), ind.unit)}</span>${next ? ` · <span class="amber" title="IMF ${next.year} estimate">’${String(next.year).slice(2)}e ${fmt(next.value, ind.unit)}</span>` : ''}</div>
+          ${sparkline(recent.map((p) => p.value), { w: 150, h: 26, color: 'var(--s1)' })}`;
+        tile.addEventListener('click', () => showIdDetail(ind));
+        tiles.append(tile);
+      }
+      idIndP.body.innerHTML = '';
+      idIndP.body.append(tiles);
+      const src = [...new Set(data.indicators.map((i) => i.source))].join(' / ');
+      idIndP.setFoot(`Source: ${esc(src)} · annual data; “e” = IMF estimate/projection for the current and future years · click a tile for the full series`);
+    }
+
+    function showIdDetail(ind) {
+      idDetailP.el.hidden = false;
+      idDetailP.el.querySelector('h2').textContent = `${ind.name} · Indonesia`;
+      idDetailP.meta.innerHTML = `<span class="muted">${esc(ind.source)}</span>`;
+      const pts = ind.points;
+      const firstProj = pts.findIndex((p) => p.projection);
+      const actual = pts.map((p, i) => (firstProj < 0 || i < firstProj ? p.value : null));
+      const proj = pts.map((p, i) => (firstProj >= 0 && i >= firstProj - 1 ? p.value : null));
+      const box = h('div');
+      idDetailP.body.innerHTML = '';
+      idDetailP.body.append(box);
+      const unitFmt = (v) => (ind.unit === '%' ? v.toFixed(1) + '%' : ind.unit === '$B' ? '$' + v.toFixed(0) + 'B' : '$' + v.toFixed(0));
+      lineChart(box, {
+        x: pts.map((p) => p.year),
+        xType: 'number',
+        xFmt: (v) => String(Math.round(v)),
+        tipXFmt: (v) => `${v}${pts.find((p) => p.year === v)?.projection ? ' (IMF projection)' : ''}`,
+        series: [{ name: 'Actual', values: actual, color: HEX[0], width: 2 }, ...(firstProj >= 0 ? [{ name: 'IMF projection', values: proj, color: HEX[0], dash: true }] : [])],
+        height: 240,
+        yFmt: unitFmt,
+        zeroLine: true,
+      });
+      idDetailP.el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
     function showDetail(ind, s, pts) {
       detailP.el.hidden = false;
       detailP.el.querySelector('h2').textContent = `${ind.name} · ${ind.id}`;
@@ -192,12 +318,14 @@ export default {
     const drawEcon = () => {
       const rows = country === 'all' ? econRows : econRows.filter((r) => r.country === country);
       econP.body.innerHTML = rows.length
-        ? `<div class="scroll h420"><table class="t compact"><thead><tr><th>Time ET</th><th>Country</th><th>Event</th><th class="r">Actual</th><th class="r">Consensus</th><th class="r">Previous</th></tr></thead><tbody>${rows
-            .map((r) => `<tr><td class="muted">${esc(r.timeGMT)}</td><td class="dim">${esc(r.country)}</td><td class="wrap">${esc(r.event)}</td><td class="r b">${esc(r.actual) || DASH}</td><td class="r">${esc(r.consensus) || DASH}</td><td class="r dim">${esc(r.previous) || DASH}</td></tr>`)
+        ? `<div class="scroll h420"><table class="t compact"><thead><tr><th>Time ${tzLabel()}</th><th>Country</th><th>Event</th><th class="r">Actual</th><th class="r">Consensus</th><th class="r">Previous</th></tr></thead><tbody>${rows
+            .map((r) => `<tr><td class="muted">${esc(etClock(econDate, r.timeGMT))}</td><td class="dim">${esc(r.country)}</td><td class="wrap">${esc(r.event)}</td><td class="r b">${esc(r.actual) || DASH}</td><td class="r">${esc(r.consensus) || DASH}</td><td class="r dim">${esc(r.previous) || DASH}</td></tr>`)
             .join('')}</tbody></table></div>`
-        : '<div class="empty">No events</div>';
+        : `<div class="empty">No ${country === 'all' ? '' : esc(country) + ' '}events this day</div>`;
     };
+    let econDate = '';
     const econNav = mkDateNav(async (d) => {
+      econDate = d;
       loading(econP.body);
       try {
         econRows = (await api.economic(d)).rows;
@@ -206,7 +334,7 @@ export default {
         errorBox(econP.body, err);
       }
     });
-    econP.meta.append(econNav.el, seg([{ value: 'United States', label: 'US' }, { value: 'all', label: 'All' }], country, (v) => {
+    econP.meta.append(econNav.el, seg([{ value: 'United States', label: 'US' }, { value: 'Indonesia', label: 'Indonesia' }, { value: 'all', label: 'All' }], country, (v) => {
       country = v;
       drawEcon();
     }));

@@ -28,6 +28,26 @@ function fromDate(days) {
   return new Date(Date.now() - days * 86400e3).toISOString().slice(0, 10);
 }
 
+// Yahoo's FX series contain occasional bad ticks (e.g. USD/IDR printing 5% off for one bar).
+// Drop points that deviate more than `tol` from the median of their neighbours.
+export function despike(points, tol = 0.04, half = 4) {
+  if (points.length < 2 * half + 1) return points;
+  const median = (arr) => {
+    if (!arr.length) return null;
+    const s = arr.map((x) => x.c).sort((a, b) => a - b);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  // A bad tick disagrees with BOTH its left and right neighbourhoods; a genuine
+  // level shift agrees with one side, so it is kept.
+  return points.filter((p, i) => {
+    const left = median(points.slice(Math.max(0, i - half), i));
+    const right = median(points.slice(i + 1, i + 1 + half));
+    const off = (m) => m == null || Math.abs(p.c / m - 1) > tol;
+    return !(off(left) && off(right));
+  });
+}
+
 function withDates(points, gmtoffsetSec = -5 * 3600) {
   return points.map((p) => ({ ...p, d: new Date(p.t + gmtoffsetSec * 1000).toISOString().slice(0, 10) }));
 }
@@ -40,7 +60,7 @@ export async function getHistory(rawSym, rangeKey = '1y') {
     if (yahooStatus().available) {
       try {
         const r = await yahooChart(sym, { range: cfg.range, interval: cfg.interval });
-        let points = withDates(r.points, r.meta.gmtoffset ?? -5 * 3600);
+        let points = withDates(classify(sym) === 'fx' ? despike(r.points) : r.points, r.meta.gmtoffset ?? -5 * 3600);
         if (cfg.trimDays) {
           const cut = Date.now() - cfg.trimDays * 86400e3;
           points = points.filter((p) => p.t >= cut);

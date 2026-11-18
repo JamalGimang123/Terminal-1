@@ -1,12 +1,37 @@
 // Dependency-free SVG charts tuned for the terminal theme.
 // Every chart: thin marks, hairline grid, crosshair/hover tooltip, re-renders on resize.
-import { esc } from './fmt.js';
+import { esc, displayTz } from './fmt.js';
 
+// Colors are theme variables (see THEME screen). They work directly in HTML styles;
+// inside SVG strings they are resolved to concrete colors at draw time (resolveVars).
 export const SERIES = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s6)', 'var(--s7)', 'var(--s8)'];
-export const HEX = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#0ca30c', '#9085e9', '#e66767'];
-export const UP = '#2fd36b';
-export const DOWN = '#ff5c5c';
-export const AMBER = '#ffa028';
+export const HEX = SERIES;
+export const UP = 'var(--up)';
+export const DOWN = 'var(--down)';
+export const AMBER = 'var(--amber)';
+
+let varCache = null;
+export function invalidateThemeCache() {
+  varCache = null;
+}
+export function cssVar(name) {
+  if (typeof document === 'undefined') return '';
+  varCache ||= new Map();
+  if (!varCache.has(name)) varCache.set(name, getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim());
+  return varCache.get(name);
+}
+// Replace var(--x) with its current value (SVG presentation attributes don't reliably support var()).
+export function resolveVars(str) {
+  return str.replace(/var\(--([a-z0-9-]+)\)/gi, (m, n) => (n === 'font' ? m : cssVar(n) || m));
+}
+// Black or white text for legibility on a given background color.
+export function textOn(color) {
+  const hex = color.startsWith('var(') ? cssVar(color.slice(6, -1)) : color;
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return '#000';
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.25 ? '#000' : '#fff';
+}
 
 // ---- scales & ticks -----------------------------------------------------------
 function linear(d0, d1, r0, r1) {
@@ -59,15 +84,16 @@ export const compactNum = (v) => {
 // Time tick labels for index-based x axes.
 function timeLabel(t, spanMs) {
   const d = new Date(t);
-  if (spanMs <= 1.6 * 86400e3) return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
-  if (spanMs <= 8 * 86400e3) return d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/New_York' });
+  const tz = displayTz === 'local' ? undefined : displayTz;
+  if (spanMs <= 1.6 * 86400e3) return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
+  if (spanMs <= 8 * 86400e3) return d.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
   if (spanMs <= 400 * 86400e3) return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 }
 
 export function timeTipLabel(t, spanMs) {
   const d = new Date(t);
-  if (spanMs <= 8 * 86400e3) return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET';
+  if (spanMs <= 8 * 86400e3) return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: displayTz === 'local' ? undefined : displayTz }) + ' ' + ({ 'America/New_York': 'ET', 'Asia/Jakarta': 'WIB' }[displayTz] || '');
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
@@ -236,7 +262,7 @@ function drawLine(el, W, o) {
   }
   svg += `<line class="xhair" x1="0" x2="0" y1="${m.t}" y2="${m.t + ph}" visibility="hidden"/><g class="hover-dots"></g>`;
   svg += `<rect class="hit" x="${m.l}" y="${m.t}" width="${pw}" height="${ph}" fill="transparent"/></svg>`;
-  el.innerHTML = (o.legend ?? o.series.length > 1 ? legend(o.series.map((s, i) => ({ name: s.name, color: s.color || SERIES[i % 8] }))) : '') + svg;
+  el.innerHTML = (o.legend ?? o.series.length > 1 ? legend(o.series.map((s, i) => ({ name: s.name, color: s.color || SERIES[i % 8] }))) : '') + resolveVars(svg);
 
   const svgEl = el.querySelector('svg');
   const hair = svgEl.querySelector('.xhair');
@@ -271,7 +297,7 @@ function drawLine(el, W, o) {
       rows += `<div><span class="sw" style="background:${c}"></span>${esc(s.name)} <b>${esc((s.fmt || o.tipFmt || yFmt)(v))}</b></div>`;
     });
     for (const b of o.bands || []) if (b.name) rows += `<div class="muted">${esc(b.name)}: ${esc((o.tipFmt || yFmt)(b.lo[i]))} – ${esc((o.tipFmt || yFmt)(b.hi[i]))}</div>`;
-    dots.innerHTML = dh;
+    dots.innerHTML = resolveVars(dh);
     tip.innerHTML = `<div class="tt">${esc(tipX(o.x[i], i))}</div>${rows}${o.tipExtra ? o.tipExtra(i) : ''}`;
     placeTip(el, tip, cx, e.clientY - rect.top);
   });
@@ -358,7 +384,7 @@ function drawPrice(el, W, o) {
     if (d) svg += `<path d="${d}" fill="none" stroke="${ov.color}" stroke-width="1.3"/>`;
   });
   // last price marker on the axis
-  svg += `<rect x="${m.l + pw + 1}" y="${Y(last) - 8}" width="${m.r - 2}" height="16" fill="${lineColor}"/><text x="${m.l + pw + 5}" y="${Y(last) + 4}" font-size="10.5" font-weight="700" fill="#000" font-family="var(--font)">${esc(fmt(last))}</text>`;
+  svg += `<rect x="${m.l + pw + 1}" y="${Y(last) - 8}" width="${m.r - 2}" height="16" fill="${lineColor}"/><text x="${m.l + pw + 5}" y="${Y(last) + 4}" font-size="10.5" font-weight="700" fill="${textOn(lineColor)}" font-family="var(--font)">${esc(fmt(last))}</text>`;
   if (volH) {
     const vy0 = m.t + ph + 6;
     const vmax = Math.max(...pts.map((p) => p.v || 0)) || 1;
@@ -376,7 +402,7 @@ function drawPrice(el, W, o) {
   svg += `<line class="xhair" y1="${m.t}" y2="${H - m.b}" visibility="hidden"/><line class="yhair xhair" x1="${m.l}" x2="${m.l + pw}" visibility="hidden"/>`;
   svg += `<rect class="hit" x="${m.l}" y="${m.t}" width="${pw}" height="${H - m.t - m.b}" fill="transparent"/></svg>`;
   const ovLegend = (o.overlays || []).length ? legend([{ name: 'Price', color: lineColor }, ...o.overlays.map((v) => ({ name: v.name, color: v.color }))]) : '';
-  el.innerHTML = ovLegend + svg;
+  el.innerHTML = ovLegend + resolveVars(svg);
   const svgEl = el.querySelector('svg');
   const [vh, hh] = svgEl.querySelectorAll('.xhair');
   const tip = tipEl(el);
@@ -452,7 +478,7 @@ function drawColumns(el, W, o) {
       const x = m.l + slot * i + slot / 2 - (k * (bw + 2)) / 2 + si * (bw + 2) + 1;
       const y = Y(Math.max(0, v));
       const h = Math.max(1, Math.abs(Y(v) - Y(0)));
-      const color = o.signedColors ? (v >= 0 ? UP : DOWN) : s.color || SERIES[si];
+      const color = o.signedColors ? (v >= 0 ? UP : DOWN) : s.colors?.[i] || s.color || SERIES[si];
       const r = Math.min(3, bw / 2);
       // rounded data-end, square baseline end
       const top = v >= 0;
@@ -464,7 +490,7 @@ function drawColumns(el, W, o) {
   });
   for (let i = 0; i < n; i++) svg += `<rect class="hitcol" data-i="${i}" x="${m.l + slot * i}" y="${m.t}" width="${slot}" height="${ph}" fill="transparent"/>`;
   svg += '</svg>';
-  el.innerHTML = (k > 1 ? legend(o.series.map((s, i) => ({ name: s.name, color: s.color || SERIES[i], box: true }))) : '') + svg;
+  el.innerHTML = (k > 1 ? legend(o.series.map((s, i) => ({ name: s.name, color: s.color || SERIES[i], box: true }))) : '') + resolveVars(svg);
   const svgEl = el.querySelector('svg');
   const tip = tipEl(el);
   svgEl.addEventListener('mousemove', (e) => {
@@ -512,7 +538,7 @@ function drawScatter(el, W, o) {
   for (const t of niceTicks(x0, x1, Math.floor(pw / 80))) svg += `<text class="tick" x="${X(t)}" y="${m.t + ph + 14}" text-anchor="middle">${esc(o.xFmt(t))}</text>`;
   svg += `<text class="tick" x="${m.l + pw / 2}" y="${H - 2}" text-anchor="middle">${esc(o.xLabel || 'Volatility')}</text>`;
   svg += `<line class="axis-line" x1="${m.l}" x2="${m.l + pw}" y1="${m.t + ph}" y2="${m.t + ph}"/>`;
-  for (const p of o.cloud) svg += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="1.6" fill="${o.cloudColor ? o.cloudColor(p.c) : 'var(--q3)'}" fill-opacity=".55"/>`;
+  for (const p of o.cloud) svg += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="1.6" fill="${o.cloudColor ? o.cloudColor(p.c) : 'var(--q3)'}" fill-opacity="${o.cloudOpacity ? o.cloudOpacity(p.c) : 0.55}"/>`;
   if (o.line?.length) svg += `<path d="${o.line.map((p, i) => `${i ? 'L' : 'M'}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join('')}" fill="none" stroke="var(--amber)" stroke-width="2"/>`;
   const boxes = [];
   o.marks.forEach((p, i) => {
@@ -535,7 +561,7 @@ function drawScatter(el, W, o) {
     svg += `<text class="lbl-strong" x="${right ? X(p.x) + 9 : X(p.x) - 9}" y="${y}" text-anchor="${right ? 'start' : 'end'}">${esc(p.label)}</text>`;
   });
   svg += `<rect class="hit" x="${m.l}" y="${m.t}" width="${pw}" height="${ph}" fill="transparent"/></svg>`;
-  el.innerHTML = (o.legendItems ? legend(o.legendItems) : '') + svg;
+  el.innerHTML = (o.legendItems ? legend(o.legendItems) : '') + resolveVars(svg);
   const svgEl = el.querySelector('svg');
   const tip = tipEl(el);
   svgEl.querySelector('.hit').addEventListener('mousemove', (e) => {
@@ -582,7 +608,7 @@ export function sparkline(values, { w = 90, h = 22, color, base } = {}) {
   const c = color || (v.at(-1) >= (base ?? v[0]) ? UP : DOWN);
   const d = v.map((x, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(x).toFixed(1)}`).join('');
   const ref = base != null ? `<line x1="0" x2="${w}" y1="${Y(base).toFixed(1)}" y2="${Y(base).toFixed(1)}" stroke="var(--line-2)" stroke-width="1" stroke-dasharray="2 2"/>` : '';
-  return `<svg class="spark" width="${w}" height="${h}" aria-hidden="true">${ref}<path d="${d}" fill="none" stroke="${c}" stroke-width="1.3"/></svg>`;
+  return resolveVars(`<svg class="spark" width="${w}" height="${h}" aria-hidden="true">${ref}<path d="${d}" fill="none" stroke="${c}" stroke-width="1.3"/></svg>`);
 }
 
 // Horizontal bar list: [{label, value, sub, color}] -> HTML table
@@ -599,31 +625,21 @@ export function hbars(items, { fmt = (v) => v.toFixed(1), max, labelW = 110, onC
     .join('')}</table>`;
 }
 
-// Diverging blue <-> gray <-> red for correlations / returns (v in [-1, 1]).
+// Diverging (correlations, v in [-1, 1]): positive pole <- neutral -> negative pole.
 export function divergingColor(v) {
-  const t = Math.max(-1, Math.min(1, v));
-  const mid = [56, 56, 53];
-  const pos = [57, 135, 229]; // blue
-  const neg = [230, 103, 103]; // red
-  const end = t >= 0 ? pos : neg;
-  const a = Math.abs(t);
-  const c = mid.map((m, i) => Math.round(m + (end[i] - m) * a));
-  return `rgb(${c.join(',')})`;
+  const t = Math.max(-1, Math.min(1, v || 0));
+  return `color-mix(in srgb, var(${t >= 0 ? '--div-pos' : '--div-neg'}) ${(Math.abs(t) * 100).toFixed(1)}%, var(--div-mid))`;
 }
 
-// Sequential (single-hue blue) for magnitude t in [0,1].
+// Sequential single-hue scale for magnitude t in [0,1].
 export function sequentialColor(t) {
-  const lo = [24, 32, 42];
-  const hi = [57, 135, 229];
-  const a = Math.max(0, Math.min(1, t));
-  return `rgb(${lo.map((l, i) => Math.round(l + (hi[i] - l) * a)).join(',')})`;
+  const a = Math.max(0, Math.min(1, t || 0));
+  return `color-mix(in srgb, var(--seq-hi) ${(a * 100).toFixed(1)}%, var(--seq-lo))`;
 }
 
-// Performance heat for sector tiles: red <- gray -> green by % change (±3% saturates).
+// Performance heat for tiles: loss <- neutral -> gain by % change (±3% saturates).
 export function perfColor(pct) {
   const t = Math.max(-1, Math.min(1, (pct || 0) / 3));
-  const mid = [40, 44, 50];
-  const end = t >= 0 ? [20, 140, 70] : [190, 50, 50];
   const a = Math.abs(t) ** 0.8;
-  return `rgb(${mid.map((m, i) => Math.round(m + (end[i] - m) * a)).join(',')})`;
+  return `color-mix(in srgb, var(${t >= 0 ? '--heat-up' : '--heat-down'}) ${(a * 100).toFixed(1)}%, var(--heat-mid))`;
 }

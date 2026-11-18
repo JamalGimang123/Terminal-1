@@ -54,6 +54,7 @@ export const api = {
   fred: (ids, start) => get(`/api/fred?${q({ ids: ids.join(','), start })}`),
   crypto: (n) => get(`/api/crypto?${q({ n })}`),
   fx: () => get('/api/fx'),
+  indonesiaMacro: () => get('/api/indonesia/macro'),
   holdings: (s) => get(`/api/etf/holdings?${q({ s })}`),
   search: (query) => get(`/api/search?${q({ q: query })}`),
   portfolio: () => get('/api/portfolio'),

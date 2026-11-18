@@ -151,3 +151,13 @@ test('sma and rsi', () => {
   assert.deepEqual(S.sma([1, 2, 3, 4], 2), [null, 1.5, 2.5, 3.5]);
   assert.equal(S.rsi([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 14), 100);
 });
+
+test('FX despike removes isolated bad ticks but keeps real moves', async () => {
+  const { despike } = await import('../server/services/history.js');
+  const base = Array.from({ length: 30 }, (_, i) => ({ t: i, c: 16000 + i * 10 }));
+  const bad = base.map((p, i) => (i === 15 ? { ...p, c: 17500 } : p));
+  assert.equal(despike(bad).length, 29);
+  // a genuine 6% level shift that persists is kept
+  const shift = base.map((p, i) => (i >= 15 ? { ...p, c: p.c * 1.06 } : p));
+  assert.equal(despike(shift).length, 30);
+});

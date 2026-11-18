@@ -1,7 +1,7 @@
 // App shell: routing, command line, function keys, clocks, ticker tape, health.
 import { api } from './api.js';
 import { $, h, toast, setStatus, resetPanelCounter } from './dom.js';
-import { esc, price, pct, cls, arrow, timeIn } from './fmt.js';
+import { esc, price, pct, cls, arrow, timeIn, displayTz, tzLabel, setDisplayTz } from './fmt.js';
 import { loadState, state, update } from './state.js';
 import { TAPE, shortSym } from './symbols.js';
 
@@ -14,8 +14,10 @@ import overlap from './screens/overlap.js';
 import sim from './screens/sim.js';
 import fire from './screens/fire.js';
 import help from './screens/help.js';
+import themeScreen from './screens/theme.js';
+import { applyTheme } from './theme.js';
 
-const SCREENS = [help, market, equity, news, macro, portfolio, overlap, sim, fire];
+const SCREENS = [help, market, equity, news, macro, portfolio, overlap, sim, fire, themeScreen];
 const byId = Object.fromEntries(SCREENS.map((s) => [s.id, s]));
 let current = null;
 let lastSymbol = 'AAPL';
@@ -94,6 +96,7 @@ const KEYS = [
   ['F7', 'OVLP', 'ovlp', 'ETF overlap'],
   ['F8', 'PSIM', 'psim', 'Portfolio simulator'],
   ['F9', 'FIRE', 'fire', 'FIRE & savings'],
+  ['F10', 'THEME', 'cfg', 'Colors & display'],
 ];
 
 function hashFor(id) {
@@ -115,15 +118,15 @@ function renderKeys() {
 
 document.addEventListener('keydown', (e) => {
   const inField = e.target.closest('input, textarea, select');
-  const fk = /^F([1-9])$/.exec(e.key);
+  const fk = /^F([1-9]|10)$/.exec(e.key);
   if (fk && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     navigate(hashFor(KEYS[Number(fk[1]) - 1][2]));
     return;
   }
-  if (e.altKey && /^[1-9]$/.test(e.key)) {
+  if (e.altKey && /^[0-9]$/.test(e.key)) {
     e.preventDefault();
-    navigate(hashFor(KEYS[Number(e.key) - 1][2]));
+    navigate(hashFor(KEYS[(Number(e.key) || 10) - 1][2]));
     return;
   }
   if (!inField && (e.key === '/' || (e.key.length === 1 && /[a-zA-Z]/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey))) {
@@ -147,6 +150,10 @@ const COMMANDS = {
   NEWS: (a) => navigate(a[0] ? `#/news/${a[0].toLowerCase()}` : '#/news'),
   N: () => navigate('#/news'),
   ECO: () => navigate('#/eco'),
+  INDO: () => navigate('#/news/indonesia'),
+  IDX: () => navigate('#/eq/%5EJKSE'),
+  IHSG: () => navigate('#/eq/%5EJKSE'),
+  JCI: () => navigate('#/eq/%5EJKSE'),
   ECON: () => navigate('#/eco'),
   RATES: () => navigate('#/eco'),
   PORT: () => navigate('#/port'),
@@ -154,6 +161,9 @@ const COMMANDS = {
   OVLP: (a) => navigate(`#/ovlp${a.length ? '?f=' + a.join(',') : ''}`),
   PSIM: (a) => navigate(`#/psim${a.length ? '?s=' + a.join(',') : ''}`),
   FIRE: () => navigate('#/fire'),
+  THEME: () => navigate('#/cfg'),
+  COLORS: () => navigate('#/cfg'),
+  CFG: () => navigate('#/cfg'),
   SAVE: () => navigate('#/fire'),
   WATCH: (a) => {
     if (!a.length) return navigate('#/port');
@@ -262,6 +272,7 @@ function tickClocks() {
   $('#clocks').innerHTML = [
     ['NY', 'America/New_York'],
     ['LDN', 'Europe/London'],
+    ['JKT', 'Asia/Jakarta'],
     ['TKY', 'Asia/Tokyo'],
   ]
     .map(([l, tz]) => `<span><b>${l}</b>${timeIn(now, tz, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>`)
@@ -276,12 +287,12 @@ async function refreshTape() {
       .filter((s) => quotes[s])
       .map((s) => {
         const q = quotes[s];
-        return `<span class="tape-item" data-s="${esc(s)}"><span class="s">${esc(shortSym(s))}</span>${price(q.price)} <span class="${cls(q.changePct)}">${arrow(q.changePct)}${pct(q.changePct)}</span></span>`;
+        return `<span class="tape-item" data-s="${esc(s)}"><span class="s">${esc(shortSym(s))}</span>${price(q.price, /\.JK$|^IDR=X$/.test(s) ? 0 : undefined)} <span class="${cls(q.changePct)}">${arrow(q.changePct)}${pct(q.changePct)}</span></span>`;
       })
       .join('');
     // Duplicate the run so the CSS marquee loops seamlessly.
     $('#tape .tape-track').innerHTML = items + items;
-    $('#status-updated').textContent = `Quotes ${timeIn(new Date(), 'America/New_York', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} ET`;
+    $('#status-updated').textContent = `Quotes ${timeIn(new Date(), displayTz, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} ${tzLabel()}`;
   } catch (err) {
     setStatus(`Quote refresh failed: ${err.message}`);
   }
@@ -304,6 +315,8 @@ async function boot() {
   tickClocks();
   setInterval(tickClocks, 1000);
   await loadState();
+  applyTheme(state().settings.theme);
+  setDisplayTz(state().settings.timeZone);
   $('#tape').addEventListener('click', (e) => {
     const it = e.target.closest('.tape-item');
     if (it) navigate(`#/eq/${encodeURIComponent(it.dataset.s)}`);

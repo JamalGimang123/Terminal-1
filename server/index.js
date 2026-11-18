@@ -16,6 +16,7 @@ import { nasdaqMovers, nasdaqEarnings, nasdaqEconomic, nasdaqSummary } from './p
 import { treasuryCurve, fredSeries, cryptoMarkets, ecbRates } from './providers/macro.js';
 import { searchSecurities, companyProfile, fundamentals, lookupFund } from './providers/sec.js';
 import { yahooStatus, yahooSearch } from './providers/yahoo.js';
+import { biRate, indonesiaIndicators } from './providers/indonesia.js';
 import { cached } from './lib/cache.js';
 import * as store from './store.js';
 
@@ -29,6 +30,7 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
 };
 
 function send(res, status, body, headers = {}, req) {
@@ -159,6 +161,16 @@ const routes = {
   'GET /api/crypto': async (q) => ({ coins: await cryptoMarkets(Math.min(50, Number(q.get('n')) || 20)), source: 'CoinGecko' }),
 
   'GET /api/fx': async () => ecbRates(),
+
+  // Indonesia: Bank Indonesia policy rate + IMF/World Bank macro indicators.
+  'GET /api/indonesia/macro': async () => {
+    const [rate, ind] = await Promise.allSettled([biRate(), indonesiaIndicators()]);
+    return {
+      biRate: rate.status === 'fulfilled' ? rate.value : null,
+      indicators: ind.status === 'fulfilled' ? ind.value : null,
+      errors: [rate, ind].filter((r) => r.status === 'rejected').map((r) => r.reason.message),
+    };
+  },
 
   'GET /api/etf/holdings': async (q) => etfHoldings(requireSymbol(q)),
 

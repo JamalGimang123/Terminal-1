@@ -1,7 +1,8 @@
 // FIRE — financial independence planner, Monte Carlo success odds, sensitivity, savings goals, emergency fund.
 import { api } from '../api.js';
 import { h, panel } from '../dom.js';
-import { esc, num, money, pctf, years, DASH } from '../fmt.js';
+import { esc, num, pctf, years, DASH } from '../fmt.js';
+import { baseOf, fmtMoney, currencyPrefix, valuePortfolio } from '../valuation.js';
 import { lineChart, HEX, compactNum, sequentialColor } from '../charts.js';
 import { state, saveInputs, savedInputs } from '../state.js';
 import * as F from '../lib/fire.js';
@@ -34,6 +35,10 @@ export default {
   id: 'fire',
   title: 'FIRE & Savings',
   async mount(root, _p, ctx) {
+    const CUR = baseOf(state());
+    const money = (x, d = 0) => fmtMoney(x, CUR, d);
+    const CP = currencyPrefix(CUR);
+    const lbl = (t) => t.replace(/ \$( |$)/, ` (${CUR})$1`).replace(/\$\/yr/, `${CUR}/yr`);
     const v = { ...DEF, ...(savedInputs('fire') || {}) };
     root.append(h('div', { class: 'screen-title' }, h('h1', {}, 'FIRE · FINANCIAL INDEPENDENCE & SAVINGS'), h('span', { class: 'sub' }, "All projections in today's dollars (real returns) unless noted")));
     const left = h('div', { class: 'stack-col c3' });
@@ -67,17 +72,14 @@ export default {
         schedule();
       });
       inputs[k] = el;
-      form.append(h('label', { title: hint || '' }, label, el, hint ? h('span', { class: 'hint' }, hint) : null));
+      form.append(h('label', { title: hint || '' }, lbl(label), el, hint ? h('span', { class: 'hint' }, hint) : null));
     }
     const usePort = h('button', { class: 'btn sm', onclick: async () => {
-      const st = state();
-      const syms = [...new Set(st.positions.map((p) => p.symbol))];
-      const { quotes } = await api.quotes(syms);
-      const total = st.positions.reduce((s, p) => s + (quotes[p.symbol]?.price ?? p.costBasis) * p.shares, 0) + st.cash.reduce((s, c) => s + c.amount, 0);
-      v.assets = Math.round(total);
+      const val = await valuePortfolio(state(), CUR);
+      v.assets = Math.round(val.total);
       inputs.assets.value = String(v.assets);
       schedule();
-    } }, 'Use my PORT value');
+    } }, `Use my PORT value (${CUR})`);
     inP.body.append(form, h('div', { class: 'row', style: { marginTop: '6px' } }, usePort));
     inP.setFoot('Inputs are saved locally.');
 
@@ -152,7 +154,7 @@ export default {
         height: 320,
         // Keep the plan readable: the axis follows the plan, the median and the 25–75% band (wider bands are clipped).
         yRange: [0, 1.12 * Math.max(plan.fiNumber, ...plan.rows.map((r) => r.end), ...mc.bands.map((b) => b.p75))],
-        yFmt: (x) => '$' + compactNum(x),
+        yFmt: (x) => CP + compactNum(x),
         tipFmt: (x) => money(x, 0),
         tipExtra: (i) => `<div class="muted">${plan.rows[i].phase === 'saving' ? `saving ${money(plan.rows[i].contribution, 0)}` : `withdrawing ${money(plan.rows[i].withdrawal, 0)}`}</div>`,
       });
@@ -165,7 +167,7 @@ export default {
       const maxY = 50;
       sensP.body.innerHTML = `<table class="t"><thead><tr><th>Savings rate ↓ / real return →</th>${rets.map((r) => `<th class="r">${(r * 100).toFixed(0)}%</th>`).join('')}</tr></thead><tbody>${grid_
         .map((row) => `<tr><td class="amber">${(row.savingsRate * 100).toFixed(0)}% <span class="muted">(spend ${money(p.income * (1 - row.savingsRate), 0)})</span></td>${row.years
-          .map((y) => `<td class="r" style="background:${Number.isFinite(y) ? sequentialColor(1 - Math.min(y, maxY) / maxY) : 'transparent'};color:#fff">${Number.isFinite(y) ? y.toFixed(1) : '∞'}</td>`)
+          .map((y) => `<td class="r heatcell" style="background:${Number.isFinite(y) ? sequentialColor(1 - Math.min(y, maxY) / maxY) : 'transparent'}">${Number.isFinite(y) ? y.toFixed(1) : '∞'}</td>`)
           .join('')}</tr>`)
         .join('')}</tbody></table>`;
       sensP.setFoot(`Assumes retirement spending equals what you spend at that savings rate (${money(p.income, 0)} income, ${money(p.assets, 0)} start). Brighter = sooner.`);
@@ -189,7 +191,7 @@ export default {
         saveInputs('fire', v);
         drawGoal();
       });
-      goalForm.append(h('label', {}, label, el));
+      goalForm.append(h('label', {}, lbl(label), el));
     }
     goalP.body.append(goalForm, goalOut);
     function drawGoal() {
@@ -200,7 +202,7 @@ export default {
         <div class="tile"><div class="l">Goal in today's $</div><div class="v">${money(v.goal / (1 + n(v.inflation, 2.5) / 100) ** v.goalYears, 0)}</div><div class="s">after ${num(n(v.inflation, 2.5), 1)}% inflation</div></div></div>`;
       const box = h('div');
       goalOut.append(box);
-      lineChart(box, { x: [0, ...sched.map((r) => r.year)], xType: 'number', xFmt: (x) => `${x}y`, tipXFmt: (x) => `Year ${x}`, series: [{ name: 'Balance', values: [v.goalCurrent, ...sched.map((r) => r.balance)], color: HEX[0], area: true }, { name: 'Contributed', values: [v.goalCurrent, ...sched.map((r) => r.contributed)], color: HEX[1] }], height: 160, yMin: 0, yFmt: (x) => '$' + compactNum(x), tipFmt: (x) => money(x, 0) });
+      lineChart(box, { x: [0, ...sched.map((r) => r.year)], xType: 'number', xFmt: (x) => `${x}y`, tipXFmt: (x) => `Year ${x}`, series: [{ name: 'Balance', values: [v.goalCurrent, ...sched.map((r) => r.balance)], color: HEX[0], area: true }, { name: 'Contributed', values: [v.goalCurrent, ...sched.map((r) => r.contributed)], color: HEX[1] }], height: 160, yMin: 0, yFmt: (x) => CP + compactNum(x), tipFmt: (x) => money(x, 0) });
     }
 
     // ---- emergency fund ----
@@ -213,11 +215,16 @@ export default {
         saveInputs('fire', v);
         drawEF();
       });
-      efForm.append(h('label', {}, label, el));
+      efForm.append(h('label', {}, lbl(label), el));
     }
     efP.body.append(efForm, efOut);
+    let efCash = 0;
+    valuePortfolio({ ...state(), positions: [] }, CUR).then((val) => {
+      efCash = val.cash;
+      if (ctx.alive) drawEF();
+    }, () => {});
     function drawEF() {
-      const cash = state().cash.reduce((s, c) => s + c.amount, 0);
+      const cash = efCash;
       const target = v.efMonthly * v.efMonths;
       const cover = v.efMonthly ? cash / v.efMonthly : 0;
       const pctDone = target ? Math.min(1, cash / target) : 0;

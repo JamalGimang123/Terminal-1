@@ -30,6 +30,14 @@ anywhere to use the command line.
 | F7 | `OVLP SPY QQQ` | ETF overlap | Up to 6 funds: overlap matrix, pair detail (common holdings, unique holdings), look-through combined exposure by your allocation |
 | F8 | `PSIM` | Portfolio simulator | Expected return, CAGR, standard deviation, Sharpe, Sortino, max drawdown, beta, alpha, VaR/CVaR, risk contribution, correlation matrix, backtest vs benchmark, efficient frontier (max-Sharpe / min-vol), Monte Carlo projection |
 | F9 | `FIRE` | FIRE & savings | FI number, years to FI, savings rate, Coast/Lean/Fat FI, Monte Carlo success odds, sensitivity table, year-by-year plan, savings-goal calculator, emergency fund |
+| F10 | `THEME` | Colors & display | Six presets (incl. light and colorblind-safe), every color editable with contrast checks, font size, time zone for timestamps (ET / WIB / local), export/import |
+
+### Indonesia
+
+- **Market monitor:** IHSG (Jakarta Composite), LQ45, Jakarta Islamic Index, USD/IDR, 22 IDX blue chips (sortable, with breadth), current BI-Rate and Indonesian headlines (English / Bahasa filter).
+- **Macro & rates:** Bank Indonesia BI-Rate decisions with history, rupiah and IHSG 1-year charts, IMF World Economic Outlook indicators (GDP growth, inflation, unemployment, current account, budget, debt, GDP per capita) with projections, Bank Indonesia press releases, and an Indonesia filter on the economic calendar.
+- **News:** an Indonesia tab (CNBC Indonesia, Antara, Detik Finance, Bank Indonesia).
+- **Stocks:** type any IDX code with `.JK` (e.g. `BBCA.JK`). Prices are in rupiah.
 
 More commands: `AAPL N` (news), `AAPL FA` (financials), `AAPL CF` (filings), `WATCH TSLA NVDA`,
 `PSIM VTI BND`, `NEWS FED`. Symbols use Yahoo-style notation for non-US instruments:
@@ -50,6 +58,7 @@ More commands: `AAPL N` (news), `AAPL FA` (financials), `AAPL CF` (filings), `WA
 | Calendars, movers, per-symbol news | Nasdaq | |
 | Crypto markets | CoinGecko | |
 | Headlines | CNBC, MarketWatch, Federal Reserve, SEC (RSS); Nasdaq & Yahoo Finance per-symbol | Links go to the original publisher |
+| Indonesia | Bank Indonesia (BI-Rate, press releases); IMF World Economic Outlook (World Bank fallback); CNBC Indonesia, Antara, Detik Finance | IDX quotes via Yahoo Finance (delayed); Detik advertorials filtered out |
 
 Every quote shows its source; delayed or stale values are tagged. If a source is unreachable
 the app falls back where it can and otherwise shows "unavailable" rather than made-up numbers.
@@ -60,8 +69,36 @@ the app falls back where it can and otherwise shows "unavailable" rather than ma
   (git-ignored) and mirrored in your browser's local storage. Use **PORT → Backup JSON** to keep a copy.
 - The server binds to `127.0.0.1` only and rejects cross-site requests. Only ticker symbols are
   sent to the public data sources.
-- CSV import recognises common broker headers (`Symbol/Ticker`, `Quantity/Shares`,
-  `Avg Cost/Cost Basis/Price`, `Total Cost`, `Date Acquired/Purchase Date`, `Account`).
+## Importing your positions (CSV)
+
+On **PORT** click **CSV format ?** for the full guide and a downloadable example. The example file is
+also in this repository at [`public/examples/portfolio-example.csv`](public/examples/portfolio-example.csv):
+
+```csv
+symbol,shares,costBasis,purchaseDate,account,assetClass,notes
+VTI,25,245.10,2024-03-15,Roth IRA,ETF,US total stock market fund
+AAPL,10,172.30,2023-11-20,Taxable,Equity,
+BBCA.JK,500,9250,2024-02-12,IDX Broker,Equity,Bank Central Asia (5 lots)
+TLKM.JK,1000,3900,2023-09-01,IDX Broker,Equity,
+BTC-USD,0.05,42000,2024-01-20,Crypto,Crypto,
+```
+
+| Column | Required? | What to put |
+|--------|-----------|-------------|
+| `symbol` | yes | Ticker. Indonesian stocks end in `.JK` (`BBCA.JK`); crypto like `BTC-USD` |
+| `shares` | yes (or `lots`) | Total shares/units. For IDX, 1 lot = 100 shares (a `lots` column is multiplied by 100) |
+| `costBasis` | recommended | Average price paid **per share, in the security's own currency** (rupiah for `.JK`). Or `totalCost` |
+| `purchaseDate` | optional | `YYYY-MM-DD` |
+| `account` | optional | Any label, e.g. `Roth IRA`, `IDX Broker` |
+| `assetClass` | optional | `Equity`, `ETF`, `Fund`, `Bond`, `Crypto`, `Commodity`, `Other` |
+| `notes` | optional | Free text |
+| `exchange` | optional | `IDX` adds `.JK` to plain codes like `BBCA` |
+
+Common broker headers are recognised too (Ticker, Quantity, Avg Cost, Date Acquired, Kode Saham,
+Jumlah Lembar, Lot, Harga Rata-rata…), as are semicolon-separated files and rupiah numbers like `Rp 9.250`.
+
+**Currencies:** choose **Base USD** or **Base IDR** on PORT. Each holding is valued in its own
+currency and converted with live exchange rates; cost basis is converted at today's rate.
 
 ## Configuration (optional environment variables)
 
@@ -78,9 +115,20 @@ the app falls back where it can and otherwise shows "unavailable" rather than ma
 ## Development
 
 ```
-npm test        # unit tests: statistics, optimiser, Monte Carlo, FIRE math, overlap, parsers
+npm test        # unit tests: statistics, optimiser, Monte Carlo, FIRE math, overlap, parsers, CSV import, FX
 npm run dev     # restart the server on file changes
 ```
+
+## Updating to a newer version
+
+Your positions live in `data/user/portfolio.json`, which is **not** part of the download. To update:
+
+1. Download the new ZIP and unzip it to a new folder.
+2. Copy the `data` folder from your old FinTerm folder into the new one (or use PORT → Backup JSON
+   before, and Import CSV/JSON after).
+3. Start FinTerm from the new folder as usual (`npm start`).
+
+If you use Git, `git pull` in the FinTerm folder updates the code and leaves `data/` untouched.
 
 ```
 server/            Node HTTP server (no dependencies)

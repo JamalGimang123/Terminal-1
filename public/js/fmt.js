@@ -101,14 +101,45 @@ export function changeHtml(change, changePct, d) {
 const tzFmt = {};
 export function timeIn(date, tz, opts = { hour: '2-digit', minute: '2-digit', hour12: false }) {
   const k = tz + JSON.stringify(opts);
-  tzFmt[k] ||= new Intl.DateTimeFormat('en-US', { timeZone: tz, ...opts });
+  tzFmt[k] ||= new Intl.DateTimeFormat('en-US', { timeZone: tz === 'local' ? undefined : tz, ...opts });
   return tzFmt[k].format(date);
 }
+
+// Time zone used for timestamps across the app (THEME → Display).
+export let displayTz = 'America/New_York';
+export function setDisplayTz(tz) {
+  displayTz = ['America/New_York', 'Asia/Jakarta', 'local'].includes(tz) ? tz : 'America/New_York';
+}
+export const tzLabel = () => ({ 'America/New_York': 'ET', 'Asia/Jakarta': 'WIB' })[displayTz] || 'local';
 
 export function hhmm(iso) {
   if (!iso) return DASH;
   const d = new Date(iso);
-  return Number.isNaN(+d) ? DASH : timeIn(d, 'America/New_York');
+  return Number.isNaN(+d) ? DASH : timeIn(d, displayTz);
+}
+
+// Offset of America/New_York from UTC (minutes) at an instant.
+function nyOffset(ms) {
+  const part = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'shortOffset' }).formatToParts(new Date(ms)).find((p) => p.type === 'timeZoneName')?.value || 'GMT-5';
+  const m = part.match(/GMT([+-]\d+)/);
+  return m ? Number(m[1]) * 60 : -300;
+}
+// "08:30" New York time on dateISO -> "HH:MM" in the display zone (+1/-1 when the day changes).
+export function etClock(dateISO, hm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || '').trim());
+  if (!m || displayTz === 'America/New_York') return hm || '';
+  const [y, mo, d] = dateISO.split('-').map(Number);
+  const fake = Date.UTC(y, mo - 1, d, Number(m[1]), Number(m[2]));
+  const real = new Date(fake - nyOffset(fake) * 60e3);
+  const out = timeIn(real, displayTz);
+  const day = timeIn(real, displayTz, { day: 'numeric' });
+  const shift = Number(day) - d;
+  return shift ? `${out}${shift > 0 ? ' +1d' : ' −1d'}` : out;
+}
+
+// For items that only carry a date (e.g. central-bank releases), show the date instead of a time.
+export function stamp(item) {
+  return item.dateOnly ? date(item.published, { month: 'short', day: 'numeric' }) : hhmm(item.published);
 }
 
 export function ago(iso) {
