@@ -25,6 +25,25 @@ const numOr = (v, d = null) => {
   return Number.isFinite(n) ? n : d;
 };
 
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+function sanitizeBond(b) {
+  const kind = b?.kind === 'floating' ? 'floating' : 'fixed';
+  const out = {
+    kind,
+    coupon: numOr(b?.coupon, 0),
+    spread: numOr(b?.spread, 0),
+    floor: kind === 'floating' ? numOr(b?.floor, numOr(b?.coupon, 0)) : null,
+    freq: [1, 2, 4, 12].includes(Number(b?.freq)) ? Number(b.freq) : 12,
+    maturity: ISO.test(b?.maturity || '') ? b.maturity : '',
+    taxRate: Math.min(100, Math.max(0, numOr(b?.taxRate, 0))),
+    tradable: !!b?.tradable,
+    currency: /^[A-Z]{3}$/.test(String(b?.currency || '')) ? b.currency : 'IDR',
+    reference: kind === 'floating' ? 'BI-Rate' : null,
+  };
+  if (numOr(b?.price, 0) > 0) out.price = numOr(b.price);
+  return out;
+}
+
 export function sanitize(doc) {
   const out = EMPTY();
   if (!doc || typeof doc !== 'object') return out;
@@ -39,6 +58,8 @@ export function sanitize(doc) {
       account: str(p.account, 60) || 'Taxable',
       assetClass: ASSET_CLASSES.has(p.assetClass) ? p.assetClass : 'Equity',
       notes: str(p.notes, 500),
+      ...(numOr(p.fxRate, 0) > 0 ? { fxRate: numOr(p.fxRate) } : {}),
+      ...(p.bond ? { bond: sanitizeBond(p.bond) } : {}),
     }))
     .filter((p) => p.symbol && p.shares !== 0);
   out.cash = (Array.isArray(doc.cash) ? doc.cash : []).slice(0, 100).map((c) => ({

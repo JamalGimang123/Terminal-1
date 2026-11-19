@@ -15,9 +15,11 @@ import sim from './screens/sim.js';
 import fire from './screens/fire.js';
 import help from './screens/help.js';
 import themeScreen from './screens/theme.js';
+import bonds from './screens/bonds.js';
+import { sbnInfo } from './lib/bonds.js';
 import { applyTheme } from './theme.js';
 
-const SCREENS = [help, market, equity, news, macro, portfolio, overlap, sim, fire, themeScreen];
+const SCREENS = [help, market, equity, news, macro, portfolio, overlap, sim, fire, themeScreen, bonds];
 const byId = Object.fromEntries(SCREENS.map((s) => [s.id, s]));
 let current = null;
 let lastSymbol = 'AAPL';
@@ -97,6 +99,7 @@ const KEYS = [
   ['F8', 'PSIM', 'psim', 'Portfolio simulator'],
   ['F9', 'FIRE', 'fire', 'FIRE & savings'],
   ['F10', 'THEME', 'cfg', 'Colors & display'],
+  ['F11', 'BOND', 'bond', 'Bonds & yields'],
 ];
 
 function hashFor(id) {
@@ -118,7 +121,7 @@ function renderKeys() {
 
 document.addEventListener('keydown', (e) => {
   const inField = e.target.closest('input, textarea, select');
-  const fk = /^F([1-9]|10)$/.exec(e.key);
+  const fk = /^F([1-9]|1[01])$/.exec(e.key);
   if (fk && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     navigate(hashFor(KEYS[Number(fk[1]) - 1][2]));
@@ -162,6 +165,10 @@ const COMMANDS = {
   PSIM: (a) => navigate(`#/psim${a.length ? '?s=' + a.join(',') : ''}`),
   FIRE: () => navigate('#/fire'),
   THEME: () => navigate('#/cfg'),
+  BOND: (a) => navigate(a.length ? `#/bond?q=${encodeURIComponent(a.join(''))}` : '#/bond'),
+  BONDS: () => navigate('#/bond'),
+  YIELD: () => navigate('#/bond'),
+  CURVE: () => navigate('#/bond'),
   COLORS: () => navigate('#/cfg'),
   CFG: () => navigate('#/cfg'),
   SAVE: () => navigate('#/fire'),
@@ -182,6 +189,8 @@ function runCommand(raw) {
   if (COMMANDS[head]) return COMMANDS[head](rest);
   if (rest[0] && SUFFIX[rest[0]]) return navigate(`#/eq/${encodeURIComponent(head)}?focus=${SUFFIX[rest[0]]}`);
   if (rest[0] === 'OVLP') return navigate(`#/ovlp?f=${[head, ...rest.slice(1)].join(',')}`);
+  // Indonesian government bond codes (SBR015T2, FR0108, ORI025T3…) open the bond screen.
+  if (sbnInfo(head)) return navigate(`#/bond?q=${encodeURIComponent(head)}`);
   if (/^[\^A-Z0-9][A-Z0-9.\-=^]{0,14}$/.test(head)) return navigate(`#/eq/${encodeURIComponent(head)}`);
   toast(`Unknown command: ${raw}`, true);
 }

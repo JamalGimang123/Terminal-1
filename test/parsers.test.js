@@ -164,3 +164,23 @@ test('currency inferred from exchange suffix', () => {
   assert.equal(currencyOf('IDR=X'), 'IDR');
   assert.equal(currencyOf('BTC-USD'), 'USD');
 });
+
+// ---- bonds ---------------------------------------------------------------------------
+import { parsePhei, idNum, interpolate } from '../server/providers/bonds.js';
+
+test('PHEI fair-price page: curve, benchmark & retail series, corporate yields', () => {
+  const d = parsePhei(fs.readFileSync(fx('phei-sample.html'), 'utf8'));
+  assert.equal(d.asOf, '2026-11-18');
+  assert.ok(d.curve.length >= 40, `curve ${d.curve.length}`);
+  const ten = d.curve.find((p) => p.years === 10);
+  assert.equal(ten.yield, 7.729);
+  const fr = d.series.find((s) => s.series === 'FR0108');
+  assert.deepEqual([fr.ttm, fr.yield, fr.price, fr.coupon, fr.group], [9.41, 7.7245, 91.9092, 6.5, 'SBN benchmark']);
+  assert.equal(d.series.find((s) => s.series === 'PBS034').group, 'SBSN benchmark (sukuk)');
+  assert.equal(d.series.find((s) => s.series === 'ORI025T3').group, 'Retail (tradable)');
+  assert.ok(d.series.some((s) => s.series.startsWith('SR')));
+  const c5 = d.corporate.find((r) => r.years === 5);
+  assert.ok(c5.AAA > c5.IGS && c5.BBB > c5.AAA);
+  assert.equal(idNum('1.234,5'), 1234.5);
+  assert.equal(interpolate([{ years: 1, yield: 6 }, { years: 3, yield: 7 }], 2), 6.5);
+});

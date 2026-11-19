@@ -17,6 +17,8 @@ import { treasuryCurve, fredSeries, cryptoMarkets, ecbRates } from './providers/
 import { searchSecurities, companyProfile, fundamentals, lookupFund } from './providers/sec.js';
 import { yahooStatus, yahooSearch } from './providers/yahoo.js';
 import { biRate, indonesiaIndicators } from './providers/indonesia.js';
+import { pheiData, globalCurves, treasuryByCusip, fxOnDate, interpolate } from './providers/bonds.js';
+import { sbnInfo } from '../public/js/lib/bonds.js';
 import { cached } from './lib/cache.js';
 import * as store from './store.js';
 
@@ -161,6 +163,58 @@ const routes = {
   'GET /api/crypto': async (q) => ({ coins: await cryptoMarkets(Math.min(50, Number(q.get('n')) || 20)), source: 'CoinGecko' }),
 
   'GET /api/fx': async () => ecbRates(),
+
+  // ---- bonds ----
+  'GET /api/bonds/overview': async () => {
+    const [curves, phei] = await Promise.allSettled([globalCurves(), pheiData()]);
+    return {
+      curves: curves.status === 'fulfilled' ? curves.value.curves : [],
+      curveErrors: curves.status === 'fulfilled' ? curves.value.errors : { all: curves.reason.message },
+      phei: phei.status === 'fulfilled' ? phei.value : null,
+      errors: [curves, phei].filter((r) => r.status === 'rejected').map((r) => r.reason.message),
+    };
+  },
+
+  // PHEI fair prices only (fast; used to value bonds in PORT).
+  'GET /api/bonds/phei': async () => pheiData(),
+
+  'GET /api/bonds/search': async (q) => {
+    const query = String(q.get('q') || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (!query) throw new HttpError('Missing ?q=', { status: 400 });
+    const info = sbnInfo(query);
+    if (info) {
+      const [phei, bi] = await Promise.allSettled([pheiData(), biRate()]);
+      const p = phei.status === 'fulfilled' ? phei.value : null;
+      return {
+        kind: 'sbn',
+        query,
+        info,
+        row: p?.series.find((s) => s.series === info.series) || null,
+        asOf: p?.asOf || null,
+        curve: p?.curve || [],
+        biRate: bi.status === 'fulfilled' ? bi.value.decisions : [],
+        source: p?.source || null,
+        sourceUrl: p?.sourceUrl || null,
+      };
+    }
+    const tenor = /^(?:US|UST|T)(\d{1,2})(Y|M)$/.exec(query);
+    if (tenor) {
+      const { curves } = await globalCurves();
+      const us = curves.find((c) => c.code === 'US');
+      const years = Number(tenor[1]) / (tenor[2] === 'M' ? 12 : 1);
+      return { kind: 'curve-point', query, country: 'United States', years, yield: us ? interpolate(us.points, years) : null, curve: us };
+    }
+    if (/^[0-9A-Z]{9}$/.test(query) && /\d/.test(query)) {
+      try {
+        return { kind: 'treasury', query, security: await treasuryByCusip(query) };
+      } catch (err) {
+        if (err.status !== 404) throw err;
+      }
+    }
+    return { kind: 'none', query };
+  },
+
+  'GET /api/fx/on': async (q) => fxOnDate(String(q.get('date') || ''), String(q.get('base') || 'USD').toUpperCase(), String(q.get('quote') || 'IDR').toUpperCase()),
 
   // Indonesia: Bank Indonesia policy rate + IMF/World Bank macro indicators.
   'GET /api/indonesia/macro': async () => {

@@ -118,11 +118,15 @@ export default {
       const st = state();
       if (!st.positions.length) return toast('No positions in PORT yet', true);
       const v = await valuePortfolio(st, CUR);
-      const vals = Object.entries(v.bySymbol).filter(([, x]) => x > 0).sort((a, b) => b[1] - a[1]).slice(0, 20);
+      // Bonds (e.g. SBR/ORI) have no daily price history to simulate from: leave them out.
+      const vals = Object.entries(v.bySymbol).filter(([sym, x]) => x > 0 && !v.bonds.has(sym)).sort((a, b) => b[1] - a[1]).slice(0, 20);
+      if (!vals.length) return toast('Only bonds in PORT — the simulator needs stocks, ETFs or funds with price history', true);
       const t = vals.reduce((s, [, x]) => s + x, 0);
       cfg.assets = vals.map(([sym, x]) => ({ s: sym, w: +((x / t) * 100).toFixed(2) }));
-      initIn.value = String(Math.round(v.total));
+      const bondValue = [...v.bonds].reduce((s, sym) => s + (v.bySymbol[sym] || 0), 0);
+      initIn.value = String(Math.round(v.total - bondValue));
       if (v.missing.length) toast(`No exchange rate for ${v.missing.join(', ')} — left out`, true);
+      else if (v.bonds.size) toast(`Bonds left out (no price history): ${[...v.bonds].join(', ')}`);
       drawRows();
     }
     drawRows();

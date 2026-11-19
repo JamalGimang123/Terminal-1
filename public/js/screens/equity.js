@@ -20,41 +20,8 @@ const RANGES = [
   ['1d', '1D'], ['5d', '5D'], ['1mo', '1M'], ['3mo', '3M'], ['6mo', '6M'], ['ytd', 'YTD'], ['1y', '1Y'], ['5y', '5Y'], ['max', 'MAX'],
 ];
 
-export function addPositionDialog(symbol, defaults = {}) {
-  const f = h('form', { class: 'form' });
-  f.innerHTML = `
-    <label>Symbol<input class="in" name="symbol" required value="${esc(symbol || '')}"></label>
-    <label>Shares / units<input class="in num" name="shares" type="number" step="any" required value="${esc(defaults.shares ?? '')}"></label>
-    <label>Cost per share ($)<input class="in num" name="costBasis" type="number" step="any" min="0" required value="${esc(defaults.costBasis ?? '')}"></label>
-    <label>Purchase date<input class="in" name="purchaseDate" type="date" value="${esc(defaults.purchaseDate || '')}"></label>
-    <label>Account<input class="in" name="account" list="acct-list" value="${esc(defaults.account || 'Taxable')}"><datalist id="acct-list"><option>Taxable</option><option>Roth IRA</option><option>Traditional IRA</option><option>401(k)</option><option>HSA</option><option>Crypto</option></datalist></label>
-    <label>Asset class<select class="in" name="assetClass">${['Equity', 'ETF', 'Fund', 'Bond', 'Crypto', 'Commodity', 'Other'].map((c) => `<option ${c === (defaults.assetClass || 'Equity') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
-    <label style="grid-column:1/-1">Notes<input class="in" name="notes" value="${esc(defaults.notes || '')}"></label>
-    <div class="row end" style="grid-column:1/-1"><button class="btn primary" type="submit">${defaults.id ? 'Save lot' : 'Add position'}</button></div>`;
-  const m = modal(defaults.id ? `Edit lot · ${symbol}` : 'Add position', f);
-  f.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const v = Object.fromEntries(new FormData(f));
-    const lot = {
-      id: defaults.id || uid(),
-      symbol: v.symbol.trim().toUpperCase(),
-      shares: Number(v.shares),
-      costBasis: Number(v.costBasis),
-      purchaseDate: v.purchaseDate,
-      account: v.account || 'Taxable',
-      assetClass: v.assetClass,
-      notes: v.notes,
-    };
-    if (!lot.symbol || !Number.isFinite(lot.shares) || lot.shares === 0 || !Number.isFinite(lot.costBasis)) return toast('Enter symbol, shares and cost', true);
-    update((d) => {
-      const i = d.positions.findIndex((p) => p.id === lot.id);
-      if (i >= 0) d.positions[i] = lot;
-      else d.positions.push(lot);
-    });
-    toast(`${defaults.id ? 'Updated' : 'Added'} ${lot.shares} ${lot.symbol}`);
-    m.close();
-  });
-}
+export { addPositionDialog } from '../positions.js';
+import { addPositionDialog } from '../positions.js';
 
 export default {
   id: 'eq',

@@ -76,23 +76,56 @@ export function fmtBig(v, ccy = 'USD', d = 1) {
 
 export const currencyPrefix = (ccy) => (PREFIX[ccy] ?? `${ccy} `).trim();
 
+/**
+ * Cost of a lot in the base currency.
+ * With `lot.fxRate` (rupiah per 1 US dollar on the purchase date) a USD lot keeps its historical
+ * rupiah cost (and an IDR lot its historical dollar cost), so P&L includes currency moves.
+ * Without it the cost is converted at today's rate (no FX effect can be measured).
+ */
+export function lotCostInBase(lot, ccy, base, conv) {
+  const native = lot.shares * lot.costBasis;
+  if (ccy === base) return { cost: native, historical: true };
+  const r = Number(lot.fxRate);
+  if (r > 0 && ccy === 'USD' && base === 'IDR') return { cost: native * r, historical: true };
+  if (r > 0 && ccy === 'IDR' && base === 'USD') return { cost: native / r, historical: true };
+  return { cost: conv(native, ccy), historical: false };
+}
+
+// Bonds are priced as a percentage of their nominal (face) value.
+export const bondCurrency = (lot) => lot.bond?.currency || 'IDR';
+export function bondPricePct(bond, pheiRow) {
+  if (bond?.price > 0) return { price: bond.price, prev: bond.price, source: 'manual' };
+  if (bond?.tradable && pheiRow?.price) return { price: pheiRow.price, prev: pheiRow.prevPrice ?? pheiRow.price, source: 'PHEI' };
+  return { price: 100, prev: 100, source: bond?.tradable ? 'par (no market price found)' : 'nominal' };
+}
+
 // Value all positions & cash in the base currency (used by PSIM, FIRE and OVLP loaders).
 export async function valuePortfolio(st, base = baseOf(st)) {
-  const syms = [...new Set(st.positions.map((p) => p.symbol))];
-  const { quotes } = await api.quotes(syms);
-  const ccys = new Set([...syms.map((s) => quotes[s]?.currency || 'USD'), ...st.cash.map((c) => c.currency || 'USD')]);
+  const syms = [...new Set(st.positions.filter((p) => !p.bond).map((p) => p.symbol))];
+  const { quotes } = syms.length ? await api.quotes(syms) : { quotes: {} };
+  const ccys = new Set([...syms.map((s) => quotes[s]?.currency || 'USD'), ...st.positions.filter((p) => p.bond).map(bondCurrency), ...st.cash.map((c) => c.currency || 'USD')]);
   const fx = fxSymbolsFor(ccys, base);
   const fxq = fx.length ? (await api.quotes(fx)).quotes : {};
   const conv = converter(ratesFromQuotes(fxq), base);
+  // Tradable bonds without a manual price: PHEI fair prices.
+  let phei = {};
+  if (st.positions.some((p) => p.bond?.tradable && !(p.bond.price > 0))) {
+    try {
+      phei = Object.fromEntries(((await api.phei()).series || []).map((r) => [r.series, r]));
+    } catch {
+      /* fall back to par */
+    }
+  }
   const bySymbol = {};
   const missing = new Set();
   for (const p of st.positions) {
     const q = quotes[p.symbol];
-    const v = conv((q?.price ?? p.costBasis) * p.shares, q?.currency || 'USD');
+    const v = p.bond ? conv((p.shares * bondPricePct(p.bond, phei[p.symbol]).price) / 100, bondCurrency(p)) : conv((q?.price ?? p.costBasis) * p.shares, q?.currency || 'USD');
     if (v == null) missing.add(p.symbol);
     else bySymbol[p.symbol] = (bySymbol[p.symbol] || 0) + v;
   }
   const cash = st.cash.reduce((s, c) => s + (conv(c.amount, c.currency || 'USD') ?? 0), 0);
   const invested = Object.values(bySymbol).reduce((s, v) => s + v, 0);
-  return { base, bySymbol, cash, invested, total: invested + cash, quotes, missing: [...missing] };
+  const bonds = new Set(st.positions.filter((p) => p.bond).map((p) => p.symbol));
+  return { base, bySymbol, cash, invested, total: invested + cash, quotes, missing: [...missing], bonds };
 }
