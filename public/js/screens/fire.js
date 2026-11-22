@@ -1,8 +1,8 @@
 // FIRE — financial independence planner, Monte Carlo success odds, sensitivity, savings goals, emergency fund.
 import { api } from '../api.js';
-import { h, panel } from '../dom.js';
+import { h, panel, seg, toast } from '../dom.js';
 import { esc, num, pctf, years, DASH } from '../fmt.js';
-import { baseOf, fmtMoney, currencyPrefix, valuePortfolio } from '../valuation.js';
+import { baseOf, fmtMoney, fmtBig, currencyPrefix, valuePortfolio, BASE_CURRENCIES } from '../valuation.js';
 import { lineChart, HEX, compactNum, sequentialColor } from '../charts.js';
 import { state, saveInputs, savedInputs } from '../state.js';
 import * as F from '../lib/fire.js';
@@ -12,6 +12,12 @@ const DEF = {
   retirementSpending: '', retireAge: '', otherIncome: 0, otherIncomeAge: 67, incomeGrowth: 1, endAge: 95, vol: 15,
   goal: 30000, goalCurrent: 5000, goalYears: 3, goalReturn: 4.5, efMonthly: 3500, efMonths: 6,
 };
+
+// Example amounts for a first visit when planning in rupiah.
+const DEF_IDR = { assets: 500_000_000, income: 240_000_000, spending: 150_000_000, goal: 100_000_000, goalCurrent: 20_000_000, efMonthly: 10_000_000 };
+
+// Amounts that are converted when you switch currency (rates and ages are not).
+const MONEY = ['assets', 'income', 'spending', 'savings', 'retirementSpending', 'otherIncome', 'goal', 'goalCurrent', 'efMonthly'];
 
 const FIELDS = [
   ['age', 'Current age', 1],
@@ -24,7 +30,7 @@ const FIELDS = [
   ['swr', 'Safe withdrawal rate %', 'any', '4% = the classic “Trinity” rule'],
   ['retirementSpending', 'Retirement spending $/yr', 'any', 'blank = current spending'],
   ['retireAge', 'Planned retirement age', 1, 'blank = as soon as FI'],
-  ['otherIncome', 'Pension / Social Security $/yr', 'any', "today's dollars"],
+  ['otherIncome', 'Pension / Social Security $/yr', 'any', "in today's money (e.g. BPJS / pension)"],
   ['otherIncomeAge', '…starting at age', 1],
   ['incomeGrowth', 'Real savings growth %/yr', 'any'],
   ['endAge', 'Plan until age', 1],
@@ -35,12 +41,39 @@ export default {
   id: 'fire',
   title: 'FIRE & Savings',
   async mount(root, _p, ctx) {
-    const CUR = baseOf(state());
+    const saved = savedInputs('fire');
+    const v = { ...DEF, ...(!saved && baseOf(state()) === 'IDR' ? DEF_IDR : {}), ...(saved || {}) };
+    const CUR = BASE_CURRENCIES.includes(v.ccy) ? v.ccy : baseOf(state());
+    const OTHER = CUR === 'USD' ? 'IDR' : 'USD';
     const money = (x, d = 0) => fmtMoney(x, CUR, d);
+    // Tiles: compact large amounts (Rp 3.75B) so they fit; the exact figure shows on hover.
+    const MT = (x) => (Math.abs(x) >= (CUR === 'IDR' ? 1e9 : 1e7) ? `<span title="${money(x, 0)}">${fmtBig(x, CUR, 2)}</span>` : money(x, 0));
     const CP = currencyPrefix(CUR);
     const lbl = (t) => t.replace(/ \$( |$)/, ` (${CUR})$1`).replace(/\$\/yr/, `${CUR}/yr`);
-    const v = { ...DEF, ...(savedInputs('fire') || {}) };
-    root.append(h('div', { class: 'screen-title' }, h('h1', {}, 'FIRE · FINANCIAL INDEPENDENCE & SAVINGS'), h('span', { class: 'sub' }, "All projections in today's dollars (real returns) unless noted")));
+    // Live USD/IDR (rupiah per dollar) for the conversion.
+    let usdIdr = null;
+    const toOther = (x) => (usdIdr && Number.isFinite(x) ? (CUR === 'USD' ? x * usdIdr : x / usdIdr) : null);
+    const alt = (x) => {
+      const y = toOther(x);
+      return y == null ? DASH : Math.abs(y) >= (OTHER === 'IDR' ? 1e9 : 1e7) ? fmtBig(y, OTHER, 2) : fmtMoney(y, OTHER, 0);
+    };
+    const ccySeg = seg(BASE_CURRENCIES.map((c) => ({ value: c, label: c, title: `Plan in ${c}` })), CUR, async (to) => {
+      if (to === CUR) return; // already in this currency: nothing to convert
+      try {
+        const rate = usdIdr || (await api.quotes(['IDR=X'])).quotes['IDR=X']?.price;
+        if (!rate) throw new Error('no USD/IDR rate');
+        const f = to === 'IDR' ? rate : 1 / rate;
+        for (const k of MONEY) if (v[k] !== '' && v[k] != null && Number.isFinite(Number(v[k]))) v[k] = to === 'IDR' ? Math.round((Number(v[k]) * f) / 1000) * 1000 : Math.round(Number(v[k]) * f);
+        v.ccy = to;
+        saveInputs('fire', v);
+        toast(`Amounts converted to ${to} at USD/IDR ${num(rate, 0)}`);
+        ctx.navigate('#/fire');
+      } catch (err) {
+        toast(`Could not convert: ${err.message}`, true);
+      }
+    });
+    const rateTxt = h('span', { class: 'muted' });
+    root.append(h('div', { class: 'screen-title' }, h('h1', {}, 'FIRE · FINANCIAL INDEPENDENCE & SAVINGS'), h('span', { class: 'sub' }, `All projections in today's ${CUR === 'IDR' ? 'rupiah' : 'dollars'} (real returns) unless noted`), h('span', { class: 'spacer' }), h('span', { class: 'muted' }, 'Plan in'), ccySeg, rateTxt));
     const left = h('div', { class: 'stack-col c3' });
     const right = h('div', { class: 'stack-col c9' });
     const grid = h('div', { class: 'grid' }, left, right);
@@ -55,6 +88,7 @@ export default {
       return p;
     };
     const inP = P('Your Numbers', left);
+    const fxP = P(OTHER === 'IDR' ? 'In Rupiah (IDR)' : 'In US Dollars (USD)', left, { bodyCls: 'flush' });
     const tilesP = P('FIRE Summary', right);
     const chartP = P('Projection — Portfolio by Age', right);
     const sensP = P('Years to FI — Savings Rate × Real Return', 'c6', { bodyCls: 'flush' });
@@ -119,18 +153,20 @@ export default {
       const coastAge = p.retireAge ?? 65;
       const isCoast = p.assets >= plan.coastFi;
       tilesP.body.innerHTML = `<div class="tiles">${[
-        tile('FI number', money(plan.fiNumber, 0), `${money(p.retirementSpending ?? p.spending, 0)}/yr ÷ ${num(p.withdrawalRate * 100, 2)}%`, '', true),
+        tile('FI number', MT(plan.fiNumber), `${money(p.retirementSpending ?? p.spending, 0)}/yr ÷ ${num(p.withdrawalRate * 100, 2)}%`, '', true),
         tile('Years to FI', plan.fiAge != null ? years(plan.fiAge - p.age) : 'not reached', plan.fiAge != null ? `FI at age ${plan.fiAge} (${new Date().getFullYear() + plan.fiAge - p.age})` : 'increase savings or returns', plan.fiAge != null ? 'up' : 'down', true),
         tile('Progress', pctf(plan.progress, 1), `${money(p.assets, 0)} of ${money(plan.fiNumber, 0)}`),
         tile('Savings rate', pctf(plan.savingsRate, 1), `${money(plan.annualSavings, 0)}/yr · ${money(plan.annualSavings / 12, 0)}/mo`),
         tile('Real return', pctf(plan.realReturn, 2), `${num(p.nominalReturn * 100, 1)}% nominal − ${num(p.inflation * 100, 1)}% inflation`),
-        tile(`Coast FI (by ${coastAge})`, money(plan.coastFi, 0), isCoast ? 'reached — growth alone gets you there' : `${money(plan.coastFi - p.assets, 0)} to go`, isCoast ? 'up' : ''),
-        tile('Lean FI (70% spend)', money(plan.leanFi, 0), ''),
-        tile('Fat FI (150% spend)', money(plan.fatFi, 0), ''),
+        tile(`Coast FI (by ${coastAge})`, MT(plan.coastFi), isCoast ? 'reached — growth alone gets you there' : `${money(plan.coastFi - p.assets, 0)} to go`, isCoast ? 'up' : ''),
+        tile('Lean FI (70% spend)', MT(plan.leanFi), ''),
+        tile('Fat FI (150% spend)', MT(plan.fatFi), ''),
         tile('Monte Carlo success', pctf(mc.successRate, 0), `retire at ${mc.retireAge}, last to ${p.endAge} · σ ${num(n(v.vol, 15), 0)}%`, mc.successRate >= 0.85 ? 'up' : mc.successRate >= 0.6 ? 'warn' : 'down'),
-        tile('Median at retirement', money(mc.medianAtRetirement, 0), `age ${mc.retireAge}, today's $`),
+        tile('Median at retirement', MT(mc.medianAtRetirement), `age ${mc.retireAge}, today's ${CUR}`),
         tile('Money lasts to', plan.depletedAge ? `age ${plan.depletedAge}` : `${p.endAge}+`, plan.depletedAge ? 'deterministic plan runs out' : 'deterministic plan', plan.depletedAge ? 'down' : 'up'),
       ].join('')}</div>`;
+
+      drawFx(p, plan, mc);
 
       // chart
       const ages = plan.rows.map((r) => r.age);
@@ -155,7 +191,7 @@ export default {
         // Keep the plan readable: the axis follows the plan, the median and the 25–75% band (wider bands are clipped).
         yRange: [0, 1.12 * Math.max(plan.fiNumber, ...plan.rows.map((r) => r.end), ...mc.bands.map((b) => b.p75))],
         yFmt: (x) => CP + compactNum(x),
-        tipFmt: (x) => money(x, 0),
+        tipFmt: (x) => (usdIdr ? `${money(x, 0)} <span class="muted">≈ ${alt(x)}</span>` : money(x, 0)),
         tipExtra: (i) => `<div class="muted">${plan.rows[i].phase === 'saving' ? `saving ${money(plan.rows[i].contribution, 0)}` : `withdrawing ${money(plan.rows[i].withdrawal, 0)}`}</div>`,
       });
       chartP.setFoot(`Retirement ${p.retireAge ? `at age ${p.retireAge} (planned)` : 'when FI is reached'} · withdrawals = retirement spending − other income · Monte Carlo: 2,000 lognormal paths, ${num(n(v.vol, 15), 0)}% volatility · upper band clipped to keep the plan readable`);
@@ -173,8 +209,8 @@ export default {
       sensP.setFoot(`Assumes retirement spending equals what you spend at that savings rate (${money(p.income, 0)} income, ${money(p.assets, 0)} start). Brighter = sooner.`);
 
       // table
-      tableP.body.innerHTML = `<table class="t compact"><thead><tr><th>Age</th><th>Year</th><th>Phase</th><th class="r">Start</th><th class="r">Saved</th><th class="r">Withdrawn</th><th class="r">Growth</th><th class="r">End</th></tr></thead><tbody>${plan.rows
-        .map((r) => `<tr class="${r.age === plan.fiAge ? 'sel' : ''}"><td class="amber">${r.age}</td><td class="muted">${r.year}</td><td class="${r.phase === 'saving' ? 'dim' : 'up'}">${r.phase}</td><td class="r">${money(r.start, 0)}</td><td class="r">${r.contribution ? money(r.contribution, 0) : DASH}</td><td class="r">${r.withdrawal ? money(r.withdrawal, 0) : DASH}</td><td class="r ${r.growth >= 0 ? 'up' : 'down'}">${money(r.growth, 0)}</td><td class="r b">${money(r.end, 0)}</td></tr>`)
+      tableP.body.innerHTML = `<table class="t compact"><thead><tr><th>Age</th><th>Year</th><th>Phase</th><th class="r">Start</th><th class="r">Saved</th><th class="r">Withdrawn</th><th class="r">Growth</th><th class="r">End</th><th class="r">End (${OTHER})</th></tr></thead><tbody>${plan.rows
+        .map((r) => `<tr class="${r.age === plan.fiAge ? 'sel' : ''}"><td class="amber">${r.age}</td><td class="muted">${r.year}</td><td class="${r.phase === 'saving' ? 'dim' : 'up'}">${r.phase}</td><td class="r">${money(r.start, 0)}</td><td class="r">${r.contribution ? money(r.contribution, 0) : DASH}</td><td class="r">${r.withdrawal ? money(r.withdrawal, 0) : DASH}</td><td class="r ${r.growth >= 0 ? 'up' : 'down'}">${money(r.growth, 0)}</td><td class="r b">${money(r.end, 0)}</td><td class="r dim">${alt(r.end)}</td></tr>`)
         .join('')}</tbody></table>`;
 
       drawGoal();
@@ -235,6 +271,57 @@ export default {
         <div style="margin-top:8px" title="${pctf(pctDone, 0)} funded"><div class="rangebar" style="height:10px"><div style="height:100%;width:${(pctDone * 100).toFixed(1)}%;background:${cash >= target ? 'var(--up)' : 'var(--amber)'};border-radius:3px"></div></div></div>
         <p class="note">Common guidance: 3–6 months of essential expenses (more if income is variable or you are the sole earner). Track savings balances under PORT → + Cash.</p>`;
     }
+
+    // ---- the other currency ----
+    let ctxInfo = { fxTrend: null, cpi: null };
+    function drawFx(p, plan, mc) {
+      if (!usdIdr) {
+        fxP.body.innerHTML = '<div class="empty">Loading USD/IDR rate…</div>';
+        return;
+      }
+      const rows = [
+        ['Invested assets', p.assets],
+        ['Annual spending', p.spending],
+        ['Annual savings', plan.annualSavings],
+        ['FI number', plan.fiNumber],
+        [`Coast FI (by ${p.retireAge ?? 65})`, plan.coastFi],
+        ['Lean FI', plan.leanFi],
+        ['Fat FI', plan.fatFi],
+        ['Median at retirement', mc.medianAtRetirement],
+        ['Savings goal: per month', F.requiredMonthlySaving(v.goal, v.goalCurrent, v.goalYears, v.goalReturn / 100)],
+        ['Emergency fund target', v.efMonthly * v.efMonths],
+      ];
+      const t = ctxInfo.fxTrend;
+      const cpi = ctxInfo.cpi;
+      fxP.body.innerHTML = `<table class="t compact"><thead><tr><th></th><th class="r">${esc(CUR)}</th><th class="r">${esc(OTHER)}</th></tr></thead><tbody>${rows.map(([l, x]) => `<tr><td>${esc(l)}</td><td class="r">${money(x, 0)}</td><td class="r b">${alt(x)}</td></tr>`).join('')}</tbody></table>`;
+      fxP.setFoot(
+        `At USD/IDR ${num(usdIdr, 0)} (live). Converted at today's rate: the future rate will differ.` +
+          (t ? ` Over the last ${t.years} years the rupiah ${t.cagr > 0 ? 'weakened' : 'strengthened'} ${num(Math.abs(t.cagr) * 100, 1)}% a year vs the dollar (${num(t.from, 0)} → ${num(t.to, 0)}).` : '') +
+          (cpi ? ` Indonesian CPI inflation averaged ${num(cpi.avg, 1)}% a year over ${cpi.from}–${cpi.to} (${esc(cpi.source)}).` : '') +
+          (CUR === 'IDR' ? ' Planning in rupiah? Use rupiah inflation, and expected returns in rupiah terms (dollar assets earn their return plus any rupiah weakening).' : ' Spending your retirement in rupiah? Consider planning in IDR so inflation and returns are in rupiah terms.'),
+      );
+    }
+    api.quotes(['IDR=X']).then((r) => {
+      usdIdr = r.quotes['IDR=X']?.price || null;
+      if (usdIdr) rateTxt.textContent = `USD/IDR ${num(usdIdr, 0)}`;
+      if (ctx.alive) compute();
+    }, () => (fxP.body.innerHTML = '<div class="empty">USD/IDR rate unavailable right now.</div>'));
+    api.history(['IDR=X'], '10y').then((r) => {
+      const s = r.series['IDR=X'];
+      if (!s?.close?.length) return;
+      const years = (Date.parse(s.dates.at(-1)) - Date.parse(s.dates[0])) / (365.25 * 86400e3);
+      if (years < 3) return;
+      ctxInfo.fxTrend = { from: s.close[0], to: s.close.at(-1), years: Math.round(years), cagr: (s.close.at(-1) / s.close[0]) ** (1 / years) - 1 };
+      if (ctx.alive) compute();
+    }, () => {});
+    api.indonesiaMacro().then((r) => {
+      const ind = (r.indicators?.indicators || []).find((i) => i.id === 'PCPIPCH');
+      const pts = (ind?.points || []).filter((x) => !x.projection && Number.isFinite(x.value)).slice(-10);
+      if (pts.length >= 5) {
+        ctxInfo.cpi = { avg: pts.reduce((a, x) => a + x.value, 0) / pts.length, from: pts[0].year, to: pts.at(-1).year, source: ind.source || 'IMF' };
+        if (ctx.alive) compute();
+      }
+    }, () => {});
 
     compute();
   },

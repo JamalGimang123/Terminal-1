@@ -26,12 +26,13 @@ anywhere to use the command line.
 | F3 | `AAPL` | Security detail | Real-time quote, interactive chart (1D–MAX, line/candles, SMA 50/200, volume), key stats (P/E, P/S, P/B, yield…), performance & risk (returns, volatility, beta, drawdown, RSI), SEC financials (annual/quarterly, margins, FCF, TTM), profile, filings, news. ETFs show top holdings |
 | F4 | `NEWS` | News | Top / markets / economy / Fed / earnings / tech / world / SEC, plus news on *your* holdings; tickers you own are highlighted |
 | F5 | `ECO` | Rates & macro | Treasury yield curve (today vs 1M vs 1Y), yield & 2s10s history, 16 FRED indicators (CPI, core PCE, unemployment, payrolls, GDP, spreads, mortgage rates…), economic & earnings calendars by day, Fed press releases |
-| F6 | `PORT` | My portfolio | Manual positions/lots, cash accounts, live value, day & unrealized P&L, income estimate, allocation by holding/class/sector/account, 1-year risk (volatility, Sharpe, beta, VaR), long/short-term lots, watchlist, CSV/JSON import & export |
+| F6 | `PORT` | My portfolio | **Focus**: hide holdings or cash accounts, or show only certain accounts/classes. Manual positions/lots, cash accounts, live value, day & unrealized P&L, income estimate, allocation by holding/class/sector/account, 1-year risk (volatility, Sharpe, beta, VaR), long/short-term lots, watchlist, CSV/JSON import & export |
 | F7 | `OVLP SPY QQQ` | ETF overlap | Up to 6 funds: overlap matrix, pair detail (common holdings, unique holdings), look-through combined exposure by your allocation |
 | F8 | `PSIM` | Portfolio simulator | Expected return, CAGR, standard deviation, Sharpe, Sortino, max drawdown, beta, alpha, VaR/CVaR, risk contribution, correlation matrix, backtest vs benchmark, efficient frontier (max-Sharpe / min-vol), Monte Carlo projection |
-| F9 | `FIRE` | FIRE & savings | FI number, years to FI, savings rate, Coast/Lean/Fat FI, Monte Carlo success odds, sensitivity table, year-by-year plan, savings-goal calculator, emergency fund |
+| F9 | `FIRE` | FIRE & savings | Plan in USD or IDR (live conversion, both currencies side by side, rupiah trend and Indonesian inflation for context), FI number, years to FI, savings rate, Coast/Lean/Fat FI, Monte Carlo success odds, sensitivity table, year-by-year plan, savings-goal calculator, emergency fund |
 | F10 | `THEME` | Colors & display | Color wheel (drag to pick, harmony schemes that generate chart palettes, color-blindness simulation and checks), six presets (incl. light and colorblind-safe), every color editable with contrast checks, font size, time zone for timestamps (ET / WIB / local), export/import |
 | F11 | `BOND` | Bonds & yields | Government yield curves (Indonesia, US, euro area, Germany, Japan, Canada), 10-year table & spreads, Indonesian IGSYC curve, PHEI fair prices for FR/PBS/ORI/SR series, corporate yields by rating, bond ETFs, price ↔ yield calculator (accrued, duration, convexity, DV01). Search `SBR015T2`, `FR0108`, a US CUSIP or `US10Y` |
+| F12 | `VAL AAPL` | Valuation | Analysts' consensus, price targets, estimates and recent broker actions next to your own DCF (WACC build-up, sensitivity), comparable companies, precedent transactions/takeover premium and dividend discount model, summarised in a football-field chart with your weighted fair value. Saved per ticker; works for US and IDX (`.JK`) stocks |
 
 ### Indonesia
 
@@ -64,6 +65,7 @@ More commands: `AAPL N` (news), `AAPL FA` (financials), `AAPL CF` (filings), `WA
 | Indonesian bonds | **PHEI** (Indonesia Bond Pricing Agency): IGSYC curve, fair prices & yields, corporate yields by rating | End of day. Non-tradable SBR/ST have no market price: valued at nominal |
 | Global yield curves | U.S. Treasury, **ECB** (euro-area AAA curve), **Deutsche Bundesbank**, **Ministry of Finance Japan**, **Bank of Canada** | End of day |
 | US Treasury securities | **TreasuryDirect** (search by CUSIP) | Terms and auction results |
+| Analyst views, financial statements, peers | **Yahoo Finance** (quoteSummary & fundamentals time series); **Nasdaq** analyst consensus (Zacks) for US stocks | Beta is computed by FinTerm from 2 years of weekly prices vs the home index |
 | Exchange rate on a past date | **ECB** reference rates via Frankfurter | Used for the purchase-date USD/IDR rate |
 
 Every quote shows its source; delayed or stale values are tagged. If a source is unreachable
@@ -150,7 +152,7 @@ server/            Node HTTP server (no dependencies)
   lib/             fetch wrapper, caches, CSV/XML/ZIP/XLSX readers, symbol & time helpers
   store.js         local portfolio persistence
 public/            the terminal UI (vanilla ES modules, SVG charts, no build step)
-  js/lib/          pure math shared with the tests: stats.js, fire.js, overlap.js, bonds.js, color.js
+  js/lib/          pure math shared with the tests: stats.js, fire.js, overlap.js, bonds.js, color.js, valmodels.js
   js/screens/      one module per screen
 test/              node:test suites and small fixtures captured from the real sources
 ```
@@ -168,6 +170,10 @@ test/              node:test suites and small fixtures captured from the real so
 - **Bonds**: street-convention price ↔ yield, actual/actual accrued interest, Macaulay/modified
   duration, convexity and DV01. Floating SBR/ST coupons = BI-Rate + spread with a floor, reset every
   3 months from the BI-Rate in force just before the reset. Coupon income is after the tax you enter.
+- **Valuation** (VAL): FCFF DCF (EBIT × (1 − tax) + D&A − capex − Δ working capital) discounted at a
+  CAPM-based WACC with a perpetual-growth or exit-multiple terminal value; comparables use the peers'
+  25th–75th percentile multiples; precedents use the deals you enter; the dividend model is two-stage.
+  The football field shows each method's range; your fair value is a weighted average you control.
 - **Color checks** (THEME): OKLab ΔE ×100 between neighbouring chart series — ≥ 15 normal vision,
   ≥ 8 under simulated protanopia/deuteranopia (Machado et al. 2009) — and WCAG contrast.
 - **FIRE** projections are in today's dollars using real returns; FI number = retirement

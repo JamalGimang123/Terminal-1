@@ -282,6 +282,7 @@ export default {
         h('button', { class: 'btn primary', onclick: () => addPositionDialog('') }, '+ Position'),
         h('button', { class: 'btn', onclick: () => bondDialog('') }, '+ Bond'),
         h('button', { class: 'btn', onclick: () => cashDialog() }, '+ Cash'),
+        h('button', { class: 'btn', title: 'Show only some positions: hide holdings, accounts or asset classes', onclick: () => focusDialog() }, 'Focus…'),
         baseSeg,
         h('button', { class: 'btn', onclick: () => fileIn.click(), title: 'CSV columns: symbol, shares, costBasis, purchaseDate, account, assetClass, notes (common broker headers are recognised)' }, 'Import CSV/JSON'),
         h('button', { class: 'btn', onclick: csvHelp, title: 'Which columns the CSV needs, with an example file' }, 'CSV format ?'),
@@ -290,8 +291,9 @@ export default {
       ),
     );
     const tiles = h('div', { class: 'tiles', style: { marginBottom: '6px' } });
+    const focusBar = h('div', { class: 'focusbar', hidden: true });
     const grid = h('div', { class: 'grid' });
-    root.append(tiles, grid);
+    root.append(tiles, focusBar, grid);
     const P = (title, c, opts) => {
       const p = panel({ title, ...opts });
       p.el.classList.add(c);
@@ -299,6 +301,17 @@ export default {
       return p;
     };
     const holdP = P('Holdings', 'c12', { bodyCls: 'flush scroll' });
+    // "Hide" buttons sit inside clickable rows: handle them before the row opens the security.
+    holdP.body.addEventListener(
+      'click',
+      (e) => {
+        const btn = e.target.closest('[data-hide]');
+        if (!btn) return;
+        e.stopPropagation();
+        hideSymbol(btn.dataset.hide);
+      },
+      true,
+    );
     const perfP = P('Current Holdings — 1Y Value vs S&P 500', 'c8');
     const riskP = P('Risk (1Y, current weights)', 'c4', { bodyCls: 'flush' });
     const allocHold = P('Allocation · Holdings', 'c3');
@@ -322,8 +335,76 @@ export default {
     const MS = (v, d = 0) => fmtMoneySigned(v, base, d);
     const MB = (v) => fmtBig(v, base, 1);
     // Summary tiles: compact for large amounts (Rp 369.73M) so they fit; exact values stay in the tables.
-    const MT = (v) => (Math.abs(v) >= 1e7 ? fmtBig(v, base, 2) : M(v));
+    const MT = (v) => (Math.abs(v) >= (base === 'IDR' ? 1e6 : 1e7) ? fmtBig(v, base, 2) : M(v));
     const MTS = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + MT(Math.abs(v));
+    // Focus: hidden holdings (by symbol) and cash accounts (by id) are left out of everything on this page.
+    const hiddenOf = (st = state()) => ({ symbols: new Set(st.settings.hidden?.symbols || []), cash: new Set(st.settings.hidden?.cash || []) });
+    const visPos = (st = state()) => {
+      const hd = hiddenOf(st).symbols;
+      return st.positions.filter((p) => !hd.has(p.symbol));
+    };
+    const visCash = (st = state()) => {
+      const hd = hiddenOf(st).cash;
+      return st.cash.filter((c) => !hd.has(c.id));
+    };
+    function setHidden(symbols, cash) {
+      update((d) => {
+        const all = new Set(d.positions.map((p) => p.symbol));
+        const ids = new Set(d.cash.map((c) => c.id));
+        d.settings.hidden = { symbols: [...new Set(symbols)].filter((x) => all.has(x)).sort(), cash: [...new Set(cash)].filter((x) => ids.has(x)) };
+      });
+    }
+    const hideSymbol = (sym) => {
+      const hd = hiddenOf();
+      setHidden([...hd.symbols, sym], [...hd.cash]);
+      toast(`${sym} hidden — click it in the focus bar to bring it back`);
+    };
+    function drawFocusBar() {
+      const st = state();
+      const hd = hiddenOf(st);
+      const syms = [...hd.symbols].filter((x) => st.positions.some((p) => p.symbol === x));
+      const cash = st.cash.filter((c) => hd.cash.has(c.id));
+      focusBar.hidden = !syms.length && !cash.length;
+      if (focusBar.hidden) return;
+      focusBar.innerHTML = '';
+      focusBar.append(
+        h('span', { class: 'amber b' }, 'FOCUS'),
+        h('span', { class: 'muted' }, `${syms.length + cash.length} hidden — totals, charts, allocation and lots below leave them out:`),
+        ...syms.map((x) => h('button', { class: 'chip', title: `Show ${x} again`, onclick: () => setHidden(syms.filter((y) => y !== x), [...hd.cash]) }, x, h('span', { class: 'muted' }, '+'))),
+        ...cash.map((c) => h('button', { class: 'chip', title: `Show ${c.account} again`, onclick: () => setHidden(syms, [...hd.cash].filter((y) => y !== c.id)) }, `Cash: ${c.account}`, h('span', { class: 'muted' }, '+'))),
+        h('button', { class: 'btn sm', onclick: () => setHidden([], []) }, 'Show all'),
+        h('button', { class: 'btn sm', onclick: () => focusDialog() }, 'Edit…'),
+      );
+    }
+    // Checklist of everything, with quick "only this account / class" filters.
+    function focusDialog() {
+      const st = state();
+      const hd = hiddenOf(st);
+      const hs = holdingsBySymbol(st.positions);
+      const f = h('div');
+      const box = (key, label, on, sub) => h('label', { class: 'row', style: { gap: '6px', padding: '2px 0' } }, h('input', { type: 'checkbox', 'data-k': key, checked: on }), h('span', { class: 'sym' }, label), sub ? h('span', { class: 'muted' }, sub) : null);
+      const accounts = [...new Set([...st.positions.map((p) => p.account), ...st.cash.map((c) => c.account)])].sort();
+      const classes = [...new Set(st.positions.map((p) => p.assetClass))].sort();
+      const set = (pred) => f.querySelectorAll('input[data-k]').forEach((i) => (i.checked = pred(i.dataset.k)));
+      const accountOf = (k) => (k.startsWith('cash:') ? [st.cash.find((c) => `cash:${c.id}` === k)?.account] : st.positions.filter((p) => p.symbol === k).map((p) => p.account));
+      const classOf = (k) => (k.startsWith('cash:') ? ['Cash'] : st.positions.filter((p) => p.symbol === k).map((p) => p.assetClass));
+      f.append(
+        h('p', { class: 'note', style: { marginTop: 0 } }, 'Ticked items are shown. Hidden ones stay saved — they are just left out of this page (FIRE, PSIM and OVLP still use everything).'),
+        h('div', { class: 'row', style: { flexWrap: 'wrap', gap: '4px' } }, h('span', { class: 'muted' }, 'Only account:'), ...accounts.map((a) => h('button', { class: 'btn sm', onclick: () => set((k) => accountOf(k).includes(a)) }, a))),
+        h('div', { class: 'row', style: { flexWrap: 'wrap', gap: '4px', marginTop: '4px' } }, h('span', { class: 'muted' }, 'Only class:'), ...[...classes, ...(st.cash.length ? ['Cash'] : [])].map((c) => h('button', { class: 'btn sm', onclick: () => set((k) => classOf(k).includes(c)) }, c)), h('button', { class: 'btn sm', onclick: () => set(() => true) }, 'All'), h('button', { class: 'btn sm', onclick: () => set(() => false) }, 'None')),
+        h('div', { style: { columns: '2 160px', marginTop: '8px' } },
+          ...hs.map((x) => box(x.symbol, x.symbol, !hd.symbols.has(x.symbol), x.accounts.join(', '))),
+          ...st.cash.map((c) => box(`cash:${c.id}`, `Cash: ${c.account}`, !hd.cash.has(c.id), c.currency)),
+        ),
+      );
+      const m = modal('Focus — choose what to show', f);
+      f.append(h('div', { class: 'row end', style: { marginTop: '8px' } }, h('button', { class: 'btn primary', onclick: () => {
+        const off = [...f.querySelectorAll('input[data-k]')].filter((i) => !i.checked).map((i) => i.dataset.k);
+        setHidden(off.filter((k) => !k.startsWith('cash:')), off.filter((k) => k.startsWith('cash:')).map((k) => k.slice(5)));
+        m.close();
+      } }, 'Apply')));
+    }
+
     let pheiRows = {}; // series -> PHEI fair price row
     let biHistory = []; // [{date, rate}] Bank Indonesia decisions
     const bondOf = (sym) => state().positions.find((p) => p.symbol === sym && p.bond)?.bond || null;
@@ -335,7 +416,7 @@ export default {
       const st = state();
       const conv = converter(rates, base);
       const missingFx = new Set();
-      const hs = holdingsBySymbol(st.positions).map((x) => {
+      const hs = holdingsBySymbol(visPos(st)).map((x) => {
         const ccy = ccyOf(x.symbol);
         const bond = x.lots.find((l) => l.bond)?.bond || null;
         // Cost in the base currency: historical when the purchase-date exchange rate is known.
@@ -400,8 +481,8 @@ export default {
           sector,
         };
       });
-      const cash = st.cash.reduce((s, c) => s + (conv(c.amount, c.currency || 'USD') ?? 0), 0);
-      const cashIncome = st.cash.reduce((s, c) => s + (conv((c.amount * (c.apy || 0)) / 100, c.currency || 'USD') ?? 0), 0);
+      const cash = visCash(st).reduce((s, c) => s + (conv(c.amount, c.currency || 'USD') ?? 0), 0);
+      const cashIncome = visCash(st).reduce((s, c) => s + (conv((c.amount * (c.apy || 0)) / 100, c.currency || 'USD') ?? 0), 0);
       const fxKey = [...missingFx].join(',');
       if (fxKey && fxKey !== fxWarned) toast(`No exchange rate yet for ${fxKey} — those holdings are left out of totals`, true);
       fxWarned = fxKey;
@@ -419,7 +500,7 @@ export default {
       const upl = c.invested - c.cost;
       const tile = (l, v, s, hero) => `<div class="tile ${hero ? 'hero' : ''}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s || '&nbsp;'}</div></div>`;
       tiles.innerHTML = [
-        tile(`Total value (${base})`, `<span title="${M(c.total)}">${MT(c.total)}</span>`, `${MT(c.invested)} invested + ${MT(c.cash)} cash`, true),
+        tile(`Total value (${base})${focusBar.hidden ? '' : ' · focus'}`, `<span title="${M(c.total)}">${MT(c.total)}</span>`, `${MT(c.invested)} invested + ${MT(c.cash)} cash`, true),
         tile("Today's P&L", `<span class="${cls(c.dayPL)}" title="${MS(c.dayPL)}">${MTS(c.dayPL)}</span>`, `<span class="${cls(c.dayPL)}">${arrow(c.dayPL)} ${pct(prevInvested ? (c.dayPL / prevInvested) * 100 : null)}</span>`),
         tile('Unrealized P&L', `<span class="${cls(upl)}" title="${MS(upl)}">${MTS(upl)}</span>`, (() => {
           const fx = c.hs.reduce((s, x) => s + (x.fxPL ?? 0), 0);
@@ -428,7 +509,7 @@ export default {
             : `<span class="${cls(upl)}">${pct(c.cost ? (upl / c.cost) * 100 : null)}</span> on ${MT(c.cost)}`;
         })()),
         tile('Est. annual income', `<span title="${M(c.income)}">${MT(c.income)}</span>`, `yield ${pctf(c.total ? c.income / c.total : null, 2)} · ${MT(c.income / 12)}/mo`),
-        tile('Positions', String(c.hs.length), `${state().positions.length} lots · ${new Set(state().positions.map((p) => p.account)).size} accounts`),
+        tile('Positions', String(c.hs.length), `${visPos().length} lots · ${new Set(visPos().map((p) => p.account)).size} accounts${focusBar.hidden ? '' : ` · ${hiddenOf().symbols.size} hidden`}`),
         tile('Largest position', c.hs.length ? esc([...c.hs].sort((a, b) => (b.mv || 0) - (a.mv || 0))[0].symbol) : DASH, c.hs.length ? `${num(Math.max(...c.hs.map((x) => x.weight || 0)), 1)}% of portfolio` : ''),
       ].join('');
     }
@@ -436,7 +517,7 @@ export default {
     let holdTable = null;
     function drawHoldings(c) {
       if (!c.hs.length) {
-        holdP.body.innerHTML = '<div class="empty">No positions yet. Click <b>+ Position</b>, type <kbd>AAPL</kbd> and use “+ Position” on its page, or import a CSV from your broker.</div>';
+        holdP.body.innerHTML = state().positions.length ? '<div class="empty">Every holding is hidden — use <b>Show all</b> in the focus bar.</div>' : '<div class="empty">No positions yet. Click <b>+ Position</b>, type <kbd>AAPL</kbd> and use “+ Position” on its page, or import a CSV from your broker.</div>';
         holdTable = null;
         return;
       }
@@ -460,11 +541,12 @@ export default {
         ] : []),
         { key: 'income', label: 'Est. income', cls: 'r', fmt: (r) => (r.income ? M(r.income) : DASH) },
         { key: 'accounts', label: 'Accounts', cls: 'dim', fmt: (r) => esc(r.accounts.join(', ')), sort: (r) => r.accounts.join() },
+        { key: 'hide', label: '', nosort: true, cls: 'r', fmt: (r) => `<button class="btn sm" data-hide="${esc(r.symbol)}" title="Hide ${esc(r.symbol)} from this page (focus on the rest)">Hide</button>` },
       ];
       const upl = c.invested - c.cost;
       const sumPrice = c.hs.reduce((s, x) => s + (x.pricePL ?? 0), 0);
       const sumFx = c.hs.reduce((s, x) => s + (x.fxPL ?? 0), 0);
-      const foot = [{ html: 'TOTAL' }, {}, {}, {}, {}, {}, { cls: 'r ' + cls(c.dayPL), html: MS(c.dayPL) }, { cls: 'r', html: M(c.invested) }, { cls: 'r', html: c.total ? num((c.invested / c.total) * 100, 1) + '%' : '' }, { cls: 'r', html: M(c.cost) }, { cls: 'r ' + cls(upl), html: MS(upl) }, { cls: 'r ' + cls(upl), html: pct(c.cost ? (upl / c.cost) * 100 : null) }, ...(showFx ? [{ cls: 'r ' + cls(sumPrice), html: MS(sumPrice) }, { cls: 'r ' + cls(sumFx), html: MS(sumFx) }] : []), { cls: 'r', html: M(c.income - c.cashIncome) }, {}];
+      const foot = [{ html: 'TOTAL' }, {}, {}, {}, {}, {}, { cls: 'r ' + cls(c.dayPL), html: MS(c.dayPL) }, { cls: 'r', html: M(c.invested) }, { cls: 'r', html: c.total ? num((c.invested / c.total) * 100, 1) + '%' : '' }, { cls: 'r', html: M(c.cost) }, { cls: 'r ' + cls(upl), html: MS(upl) }, { cls: 'r ' + cls(upl), html: pct(c.cost ? (upl / c.cost) * 100 : null) }, ...(showFx ? [{ cls: 'r ' + cls(sumPrice), html: MS(sumPrice) }, { cls: 'r ' + cls(sumFx), html: MS(sumFx) }] : []), { cls: 'r', html: M(c.income - c.cashIncome) }, {}, {}];
       holdP.body.innerHTML = '';
       holdTable = table(cols, c.hs, { sortKey: 'mv', onRow: (r) => ctx.navigate(r.bond ? `#/bond?q=${encodeURIComponent(r.symbol)}` : `#/eq/${encodeURIComponent(r.symbol)}`), foot });
       holdP.body.append(holdTable);
@@ -490,19 +572,19 @@ export default {
       allocSector.body.innerHTML = hbars(group('sector').map(([k, v]) => ({ label: k, value: (v / c.total) * 100, color: HEX[0], sub: MB(v) })), { fmt: (v) => num(v, 1) + '%', labelW: 120 });
       // accounts: split each holding's value across its lots' accounts
       const acct = new Map();
-      for (const p of state().positions) {
+      for (const p of visPos()) {
         const q = quotes[p.symbol];
         const unit = p.bond ? bondPricePct(p.bond, pheiRows[p.symbol]).price / 100 : q?.price;
         const v = unit != null ? c.conv(unit * p.shares, ccyOf(p.symbol)) : null;
         if (v != null) acct.set(p.account, (acct.get(p.account) || 0) + v);
       }
-      for (const cr of state().cash) acct.set(cr.account, (acct.get(cr.account) || 0) + (c.conv(cr.amount, cr.currency || 'USD') ?? 0));
+      for (const cr of visCash()) acct.set(cr.account, (acct.get(cr.account) || 0) + (c.conv(cr.amount, cr.currency || 'USD') ?? 0));
       allocAcct.body.innerHTML = hbars([...acct.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: k, value: (v / c.total) * 100, color: HEX[0], sub: MB(v) })), { fmt: (v) => num(v, 1) + '%', labelW: 110 });
       allocSector.setFoot('Sector: Nasdaq company summary; funds grouped together — see OVLP look-through for ETF contents');
     }
 
     function drawLots(c) {
-      const lots = state().positions;
+      const lots = visPos();
       if (!lots.length) {
         lotsP.body.innerHTML = '<div class="empty">No lots</div>';
         return;
@@ -539,18 +621,22 @@ export default {
     });
 
     function drawCash(c) {
-      const rows = state().cash;
+      const rows = visCash();
       cashP.body.innerHTML = rows.length
         ? `<table class="t compact"><thead><tr><th>Account</th><th class="r">Balance</th><th class="r">APY</th><th class="r">Interest/yr</th><th></th></tr></thead><tbody>${rows
-            .map((r) => `<tr data-id="${esc(r.id)}"><td>${esc(r.account)}</td><td class="r b">${fmtMoney(r.amount, r.currency || 'USD', 0)}</td><td class="r">${num(r.apy, 2)}%</td><td class="r">${fmtMoney((r.amount * r.apy) / 100, r.currency || 'USD', 0)}</td><td class="r"><button class="btn sm" data-act="edit">Edit</button> <button class="btn sm danger" data-act="del">✕</button></td></tr>`)
+            .map((r) => `<tr data-id="${esc(r.id)}"><td>${esc(r.account)}</td><td class="r b">${fmtMoney(r.amount, r.currency || 'USD', 0)}</td><td class="r">${num(r.apy, 2)}%</td><td class="r">${fmtMoney((r.amount * r.apy) / 100, r.currency || 'USD', 0)}</td><td class="r"><button class="btn sm" data-act="hide" title="Hide from this page">Hide</button> <button class="btn sm" data-act="edit">Edit</button> <button class="btn sm danger" data-act="del">✕</button></td></tr>`)
             .join('')}</tbody><tfoot><tr><td>Total (${base})</td><td class="r">${M(c.cash)}</td><td></td><td class="r">${M(c.cashIncome)}</td><td></td></tr></tfoot></table>`
-        : '<div class="empty">No cash accounts — use “+ Cash” to track savings, money market or checking balances.</div>';
+        : state().cash.length ? '<div class="empty">All cash accounts are hidden (see the focus bar).</div>' : '<div class="empty">No cash accounts — use “+ Cash” to track savings, money market or checking balances.</div>';
     }
     cashP.body.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-act]');
       if (!btn) return;
       const id = btn.closest('tr').dataset.id;
       const row = state().cash.find((x) => x.id === id);
+      if (btn.dataset.act === 'hide') {
+        const hd = hiddenOf();
+        return setHidden([...hd.symbols], [...hd.cash, id]);
+      }
       if (btn.dataset.act === 'edit') cashDialog(row);
       else if (confirm(`Delete ${row.account}?`)) update((d) => (d.cash = d.cash.filter((x) => x.id !== id)));
     });
@@ -653,6 +739,7 @@ export default {
     });
 
     function drawAll() {
+      drawFocusBar();
       const c = compute();
       drawBonds(c);
       drawTiles(c);
@@ -672,8 +759,7 @@ export default {
     });
     perfP.meta.append(perfSeg);
     function drawPerf() {
-      const st = state();
-      const hs = holdingsBySymbol(st.positions);
+      const hs = holdingsBySymbol(visPos());
       if (!hs.length || !hist) {
         perfP.body.innerHTML = '<div class="empty">Add positions to see how your current holdings performed over the past year.</div>';
         riskP.body.innerHTML = '<div class="empty">—</div>';

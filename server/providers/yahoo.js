@@ -25,8 +25,15 @@ export function yahooStatus() {
   };
 }
 
-async function ensureCookie() {
-  if (cookie && Date.now() - cookieFetchedAt < 6 * 3600e3) return;
+let cookiePromise = null;
+function ensureCookie() {
+  const age = Date.now() - cookieFetchedAt;
+  if ((cookie && age < 6 * 3600e3) || (!cookie && age < 5 * 60e3)) return Promise.resolve(); // failed fetches retry after 5 min
+  // Concurrent callers share one fetch, so nobody proceeds without the cookie.
+  cookiePromise ||= fetchCookie().finally(() => (cookiePromise = null));
+  return cookiePromise;
+}
+async function fetchCookie() {
   cookieFetchedAt = Date.now();
   try {
     const res = await fetch('https://fc.yahoo.com/', { headers: browserHeaders({ Accept: 'text/html' }), redirect: 'manual', signal: AbortSignal.timeout(8000) });
@@ -38,7 +45,8 @@ async function ensureCookie() {
   }
 }
 
-async function yget(pathAndQuery) {
+// `auth`: a 401/403 means a stale session crumb, not rate-limiting (no cooldown).
+async function yget(pathAndQuery, { auth = false } = {}) {
   if (disabled) throw new HttpError('Yahoo Finance disabled (DISABLE_YAHOO=1)', { status: 503 });
   if (Date.now() < cooldownUntil) {
     throw new HttpError('Yahoo Finance is rate-limiting; cooling down', { status: 429 });
@@ -57,9 +65,10 @@ async function yget(pathAndQuery) {
       return res;
     } catch (err) {
       lastErr = err;
-      if (err.status === 404) throw err; // symbol not found: don't retry other host
+      if (err.status === 404 || (auth && err.status === 401)) throw err; // not found / stale crumb: don't retry other host
     }
   }
+  if (auth && (lastErr?.status === 401 || lastErr?.status === 403)) throw lastErr;
   if (lastErr?.status === 429 || lastErr?.status === 401 || lastErr?.status === 403) {
     cooldownUntil = Date.now() + cooldownMs;
     cooldownMs = Math.min(cooldownMs * 2, 15 * 60e3);
@@ -192,4 +201,74 @@ export async function yahooNews(symbol) {
   const url = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(symbol)}&region=US&lang=en-US`;
   const res = await request(url, { headers: browserHeaders({ Accept: 'application/rss+xml, text/xml' }), timeout: 10000 });
   return parseFeed(await res.text()).map((i) => ({ ...i, source: 'Yahoo Finance' }));
+}
+
+// ---- fundamentals & analyst data (quoteSummary needs a session "crumb") -----------------
+let crumb = '';
+let crumbAt = 0;
+async function getCrumb(force = false) {
+  if (!force && crumb && Date.now() - crumbAt < 6 * 3600e3) return crumb;
+  if (force) {
+    cookie = ''; // a new crumb needs a fresh cookie
+    cookieFetchedAt = 0;
+  }
+  const res = await yget('/v1/test/getcrumb', { auth: true });
+  const text = (await res.text()).trim();
+  if (!text || text.length > 40 || /[<{\s]/.test(text)) throw new HttpError('Yahoo Finance: no session crumb', { status: 502 });
+  crumb = text;
+  crumbAt = Date.now();
+  return crumb;
+}
+
+// Yahoo wraps numbers as {raw, fmt}; a missing value comes back as {}.
+const raw = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? ('raw' in v ? v.raw : Object.keys(v).length ? v : null) : v);
+// Flatten {raw, fmt} values one level deep; keep arrays/objects as-is otherwise.
+export function flattenYahoo(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, raw(v)]));
+}
+
+export async function yahooQuoteSummary(symbol, modules) {
+  const run = async (force) => {
+    const c = await getCrumb(force);
+    const res = await yget(`/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules.join(',')}&crumb=${encodeURIComponent(c)}`, { auth: true });
+    return res.json();
+  };
+  let json;
+  try {
+    json = await run(false);
+  } catch (err) {
+    if (err.status !== 401 && err.status !== 403) throw err;
+    json = await run(true);
+  }
+  const r = json?.quoteSummary?.result?.[0];
+  if (!r) throw new HttpError(json?.quoteSummary?.error?.description || `No fundamentals for ${symbol}`, { status: 404 });
+  return r;
+}
+
+// Statement items by full key, e.g. ['annualTotalRevenue', 'trailingEBIT', 'quarterlyTotalDebt']
+// -> { annual: {TotalRevenue: [{date, value}]}, trailing: {...}, quarterly: {...}, currency }
+export async function yahooTimeseries(symbol, keys) {
+  const now = Math.floor(Date.now() / 1000);
+  const res = await yget(`/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?symbol=${encodeURIComponent(symbol)}&type=${keys.join(',')}&period1=1420070400&period2=${now}`);
+  const json = await res.json();
+  const out = { annual: {}, trailing: {}, quarterly: {}, currency: null };
+  for (const item of json?.timeseries?.result || []) {
+    const key = item.meta?.type?.[0];
+    if (!key || !item[key]) continue;
+    const [, kind, name] = /^(annual|trailing|quarterly)(.+)$/.exec(key) || [];
+    if (!kind) continue;
+    const rows = item[key].filter(Boolean).map((x) => ({ date: x.asOfDate, value: x.reportedValue?.raw ?? null, currency: x.currencyCode })).filter((x) => x.value != null);
+    if (rows.length) {
+      out[kind][name] = rows.sort((a, b) => a.date.localeCompare(b.date));
+      out.currency ||= rows.at(-1).currency || null;
+    }
+  }
+  return out;
+}
+
+export async function yahooPeers(symbol) {
+  const res = await yget(`/v6/finance/recommendationsbysymbol/${encodeURIComponent(symbol)}`);
+  const json = await res.json();
+  return (json?.finance?.result?.[0]?.recommendedSymbols || []).map((x) => x.symbol).filter(Boolean);
 }

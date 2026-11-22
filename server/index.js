@@ -19,6 +19,7 @@ import { yahooStatus, yahooSearch } from './providers/yahoo.js';
 import { biRate, indonesiaIndicators } from './providers/indonesia.js';
 import { pheiData, globalCurves, treasuryByCusip, fxOnDate, interpolate } from './providers/bonds.js';
 import { sbnInfo } from '../public/js/lib/bonds.js';
+import { valuationData, peerMultiples } from './services/valuation.js';
 import { cached } from './lib/cache.js';
 import * as store from './store.js';
 
@@ -122,6 +123,14 @@ const routes = {
   },
 
   'GET /api/fundamentals': async (q) => fundamentals(requireSymbol(q)),
+
+  // VAL screen: analyst views, financials, beta, dividends, risk-free rate, peer list.
+  'GET /api/valuation': async (q) => valuationData(requireSymbol(q)),
+  'GET /api/valuation/peers': async (q) => {
+    const syms = symbolsParam(q);
+    if (!syms.length) throw new HttpError('Missing ?s=PEER1,PEER2', { status: 400 });
+    return peerMultiples(syms);
+  },
 
   'GET /api/news': async (q) => {
     const s = symbolsParam(q)[0];

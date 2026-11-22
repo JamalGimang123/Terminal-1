@@ -16,13 +16,15 @@ import fire from './screens/fire.js';
 import help from './screens/help.js';
 import themeScreen from './screens/theme.js';
 import bonds from './screens/bonds.js';
+import valuation from './screens/valuation.js';
 import { sbnInfo } from './lib/bonds.js';
 import { applyTheme } from './theme.js';
 
-const SCREENS = [help, market, equity, news, macro, portfolio, overlap, sim, fire, themeScreen, bonds];
+const SCREENS = [help, market, equity, news, macro, portfolio, overlap, sim, fire, themeScreen, bonds, valuation];
 const byId = Object.fromEntries(SCREENS.map((s) => [s.id, s]));
 let current = null;
 let lastSymbol = 'AAPL';
+let lastValSymbol = '';
 
 // ---- routing ------------------------------------------------------------------------
 export function navigate(hash) {
@@ -41,6 +43,7 @@ async function route() {
   const { id, args, query } = parseHash();
   const screen = byId[id] || market;
   if (screen.id === 'eq' && args[0]) lastSymbol = args[0].toUpperCase();
+  if (screen.id === 'val' && args[0]) lastValSymbol = args[0].toUpperCase();
   current?.ctx.destroy();
   const root = $('#screen');
   root.innerHTML = '';
@@ -48,7 +51,8 @@ async function route() {
   const ctx = makeCtx();
   current = { screen, ctx };
   document.querySelectorAll('#fkeys a').forEach((a) => a.classList.toggle('active', a.dataset.id === screen.id));
-  document.title = `${screen.id === 'eq' && args[0] ? args[0].toUpperCase() + ' · ' : ''}${screen.title} · FinTerm`;
+  document.title = `${(screen.id === 'eq' || screen.id === 'val') && args[0] ? args[0].toUpperCase() + ' · ' : ''}${screen.title} · FinTerm`;
+  document.querySelectorAll('#fkeys a').forEach((a) => a.setAttribute('href', hashFor(a.dataset.id)));
   try {
     await screen.mount(root, { args, query }, ctx);
   } catch (err) {
@@ -100,9 +104,11 @@ const KEYS = [
   ['F9', 'FIRE', 'fire', 'FIRE & savings'],
   ['F10', 'THEME', 'cfg', 'Colors & display'],
   ['F11', 'BOND', 'bond', 'Bonds & yields'],
+  ['F12', 'VAL', 'val', 'Valuation'],
 ];
 
 function hashFor(id) {
+  if (id === 'val') return lastValSymbol ? `#/val/${encodeURIComponent(lastValSymbol)}` : '#/val';
   return id === 'eq' ? `#/eq/${encodeURIComponent(lastSymbol)}` : `#/${id}`;
 }
 
@@ -121,7 +127,7 @@ function renderKeys() {
 
 document.addEventListener('keydown', (e) => {
   const inField = e.target.closest('input, textarea, select');
-  const fk = /^F([1-9]|1[01])$/.exec(e.key);
+  const fk = /^F([1-9]|1[0-2])$/.exec(e.key);
   if (fk && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     navigate(hashFor(KEYS[Number(fk[1]) - 1][2]));
@@ -167,6 +173,9 @@ const COMMANDS = {
   THEME: () => navigate('#/cfg'),
   BOND: (a) => navigate(a.length ? `#/bond?q=${encodeURIComponent(a.join(''))}` : '#/bond'),
   BONDS: () => navigate('#/bond'),
+  VAL: (a) => navigate(a[0] ? `#/val/${encodeURIComponent(a[0])}` : hashFor('val')),
+  DCF: (a) => navigate(a[0] ? `#/val/${encodeURIComponent(a[0])}` : hashFor('val')),
+  VALUE: (a) => navigate(a[0] ? `#/val/${encodeURIComponent(a[0])}` : hashFor('val')),
   YIELD: () => navigate('#/bond'),
   CURVE: () => navigate('#/bond'),
   COLORS: () => navigate('#/cfg'),
@@ -188,6 +197,7 @@ function runCommand(raw) {
   const [head, ...rest] = parts;
   if (COMMANDS[head]) return COMMANDS[head](rest);
   if (rest[0] && SUFFIX[rest[0]]) return navigate(`#/eq/${encodeURIComponent(head)}?focus=${SUFFIX[rest[0]]}`);
+  if (rest[0] === 'VAL' || rest[0] === 'DCF') return navigate(`#/val/${encodeURIComponent(head)}`);
   if (rest[0] === 'OVLP') return navigate(`#/ovlp?f=${[head, ...rest.slice(1)].join(',')}`);
   // Indonesian government bond codes (SBR015T2, FR0108, ORI025T3…) open the bond screen.
   if (sbnInfo(head)) return navigate(`#/bond?q=${encodeURIComponent(head)}`);

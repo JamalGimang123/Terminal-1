@@ -342,3 +342,15 @@ td.heatcell { color: var(--heat-text); }
 .cw-strip i { height: 18px; font-style: normal; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; }
 .cw-dot { width: 12px; height: 12px; display: inline-block; flex: none; }
 .cbadge.bad { color: var(--down); border-color: color-mix(in srgb, var(--down) 45%, transparent); }
+
+/* VAL screen */
+.val-split { display: grid; grid-template-columns: minmax(280px, 2fr) 3fr; gap: 14px; align-items: start; }
+.val-split > * { min-width: 0; }
+@media (max-width: 900px) { .val-split { grid-template-columns: 1fr; } }
+.t.sens td, .t.sens th { padding: 3px 8px; }
+
+/* PORT focus bar (hidden positions) */
+.focusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px 8px; margin-bottom: 6px; border: 1px solid var(--amber-dim); background: color-mix(in srgb, var(--amber) 7%, var(--panel)); }
+.focusbar .chip { cursor: pointer; background: none; font: inherit; }
+.focusbar .chip:hover { border-color: var(--amber); }
+.form label > .in { width: 100%; min-width: 0; box-sizing: border-box; }

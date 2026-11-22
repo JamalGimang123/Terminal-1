@@ -59,6 +59,8 @@ export const api = {
   phei: () => get('/api/bonds/phei'),
   bondSearch: (query) => get(`/api/bonds/search?${q({ q: query })}`),
   fxOn: (date, base = 'USD', quote = 'IDR') => get(`/api/fx/on?${q({ date, base, quote })}`),
+  valuation: (s) => get(`/api/valuation?${q({ s })}`),
+  peers: (symbols) => get(`/api/valuation/peers?${q({ s: symbols.join(',') })}`),
   holdings: (s) => get(`/api/etf/holdings?${q({ s })}`),
   search: (query) => get(`/api/search?${q({ q: query })}`),
   portfolio: () => get('/api/portfolio'),

@@ -91,6 +91,7 @@ export default {
             });
             drawHead();
           } }, inWatch ? '★ Watching' : '☆ Watch'),
+          !isIndexLike(sym) && !profile?.isFund && !/-USD$/.test(sym) ? h('a', { class: 'btn', href: `#/val/${encodeURIComponent(sym)}`, title: 'Analyst targets, DCF, comparables and football field' }, 'Valuation') : null,
           !isIndexLike(sym) ? h('button', { class: 'btn primary', onclick: () => addPositionDialog(sym, { costBasis: q?.price ? Number(q.price.toFixed(2)) : '', assetClass: profile?.isFund ? 'ETF' : /-USD$/.test(sym) ? 'Crypto' : 'Equity' }) }, '+ Position') : null,
           profile?.isFund ? h('button', { class: 'btn', onclick: () => ctx.navigate(`#/ovlp?f=${sym}`) }, 'Overlap ›') : null,
           !isIndexLike(sym) ? h('button', { class: 'btn', onclick: () => ctx.navigate(`#/psim?s=${sym}`) }, 'Simulate ›') : null,
